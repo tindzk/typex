@@ -1,0 +1,28 @@
+[package]
+name = "typex_derive"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Derive macros for runtime type introspection and structural access"
+license = "Apache-2.0"
+readme = "../README.md"
+repository = "https://github.com/tindzk/typex"
+documentation = "https://docs.rs/typex_derive"
+keywords = ["reflection", "introspection", "derive", "proc-macro", "structural-access"]
+categories = ["development-tools::procedural-macro-helpers", "rust-patterns"]
+exclude = [".github/"]
+
+[lib]
+proc-macro = true
+path = "src/lib.rs"
+
+[dependencies]
+syn = { version = "2.0", features = ["visit"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+
+[dev-dependencies]
+typex = { path = "../typex", features = ["derive"] }
+
+[package.metadata.docs.rs]
+all-features = true

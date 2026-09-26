@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+  "typex",
+  "typex_derive"
+]
+exclude = ["tests/no_std"]
+
+# One codegen unit keeps instruction counts independent of partitioning.
+[profile.bench]
+codegen-units = 1

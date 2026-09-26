@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings -D clippy::redundant_clone
+
+  test:
+    name: Tests (${{ matrix.rust }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [1.85, stable]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run default test suite
+        run: cargo test
+
+      - name: Run tests
+        run: cargo test --no-default-features
+
+      - name: Run all-features tests
+        run: cargo test --all-features
+
+      - name: Run doctests
+        run: cargo test --doc
+
+      - name: Run no_std smoke crate tests
+        run: cargo test --manifest-path tests/no_std/Cargo.toml
+
+      - name: Cache tokei
+        if: matrix.rust == 'stable'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/tokei
+          key: tokei-14.0.0-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install tokei
+        if: matrix.rust == 'stable'
+        run: |
+          if [ ! -x "$HOME/.cargo/bin/tokei" ]; then
+            cargo install tokei --version 14.0.0 --locked
+          fi
+
+      - name: Check README code samples
+        if: matrix.rust == 'stable'
+        run: python3 scripts/check-readme.py
+
+      - name: Verify typex packaging
+        run: cargo package --allow-dirty --list -p typex
+
+      - name: Verify typex_derive packaging
+        run: cargo package --allow-dirty --list -p typex_derive
+
+  targets:
+    name: Target Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust with wasm target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check WebAssembly compilation
+        run: |
+          cargo build --target wasm32-unknown-unknown --no-default-features
+          cargo build --target wasm32-unknown-unknown --all-features

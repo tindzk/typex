@@ -1,0 +1,32 @@
+[package]
+name = "typex"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Runtime reflection: inspection, traversal, equality and mutation"
+license = "Apache-2.0"
+readme = "../README.md"
+repository = "https://github.com/tindzk/typex"
+documentation = "https://docs.rs/typex"
+keywords = ["reflection", "introspection", "downcast", "type-map", "dynamic"]
+categories = ["data-structures", "no-std", "rust-patterns"]
+exclude = [".github/"]
+
+[features]
+default = ["std"]
+std = []
+derive = ["dep:typex_derive"]
+
+[dependencies]
+typex_derive = { version = "0.1.0", path = "../typex_derive", optional = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dev-dependencies]
+iai-callgrind = "0.16.1"
+typex = { path = ".", default-features = false, features = ["derive"] }
+
+[[bench]]
+name = "instruction_counts"
+harness = false

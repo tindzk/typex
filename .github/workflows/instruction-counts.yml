@@ -1,0 +1,85 @@
+name: Instruction counts
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/instruction-counts.yml"
+      - "typex/**"
+      - "typex_derive/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+
+jobs:
+  instruction-counts:
+    name: Typex instruction counts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Valgrind
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y valgrind
+
+      - name: Cache iai-callgrind runner
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/iai-callgrind-runner
+          key: iai-callgrind-runner-0.16.1-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install iai-callgrind runner
+        run: |
+          if [ ! -x "$HOME/.cargo/bin/iai-callgrind-runner" ]; then
+            cargo install iai-callgrind-runner --version 0.16.1 --locked
+          fi
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build base instruction-count baseline
+        id: base
+        if: github.event_name == 'pull_request'
+        run: |
+          base="$RUNNER_TEMP/typex-base"
+          base_target="$RUNNER_TEMP/typex-base-target"
+          git worktree add "$base" "${{ github.event.pull_request.base.sha }}"
+          if [ ! -f "$base/typex/benches/instruction_counts.rs" ]; then
+            # The base branch predates the suite, and this branch's bench may
+            # not compile against the base API, so skip the comparison.
+            echo "Base branch has no instruction-count suite; skipping baseline."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CARGO_TARGET_DIR="$base_target" cargo bench \
+            --manifest-path "$base/Cargo.toml" \
+            --package typex \
+            --bench instruction_counts \
+            -- \
+            --save-baseline=base
+          mkdir -p "$CARGO_TARGET_DIR/iai"
+          cp -a "$base_target/iai/." "$CARGO_TARGET_DIR/iai/"
+          echo "available=true" >> "$GITHUB_OUTPUT"
+
+      - name: Check instruction counts
+        env:
+          BASELINE_AVAILABLE: ${{ steps.base.outputs.available }}
+        run: |
+          if [ "$BASELINE_AVAILABLE" = "true" ]; then
+            cargo bench \
+              --package typex \
+              --bench instruction_counts \
+              -- \
+              --baseline=base
+          else
+            cargo bench --package typex --bench instruction_counts
+          fi

@@ -1,0 +1,23 @@
+# AGENTS
+
+- Do not stage changes. Leave all modifications unstaged.
+- Read `DESIGN.md` before making architectural changes. Treat its current decisions as constraints and update it, together with relevant tests and public documentation, when a deliberate design decision changes.
+- Use British English spelling in all new prose and comments across the repository.
+- Prefer forms such as `initialisation`, `behaviour`, `optimise`, and `colour` unless a third-party API, identifier, or direct quote requires a different spelling.
+- In documentation, describe current behaviour directly rather than changes relative to an earlier version or what a type does not do.
+- Keep field, variant and method documentation concise, usually no more than three short sentences: State what the item is, then explain behaviour a caller cannot infer. Put rationale in module documentation.
+- When editing an item, rewrite its existing documentation instead of appending to it.
+- State facts plainly with active voice, present tense and consistent terminology. Explain what holds and why a caller cannot infer it. Avoid editorialising and remove comments that only restate the code.
+- In prose, do not use an Oxford comma by default. Add a comma before `and` only when it is needed to avoid ambiguity or to set off a parenthetical phrase.
+- Do not use em dashes. Use commas, colons or rewrite the sentence.
+- After a colon, start with a capital letter when a full sentence follows. Use lowercase when a phrase or list follows.
+- Use verb forms for function names and noun forms for type and variable names.
+- Avoid uncommon compound-adjective constructions. Spell out the intended relationship instead.
+- Prefer explicit turbofish calls for `ObjectOps::to`, for example `object.to::<Number>()`, instead of relying on variable type annotations like `let value: Number = object.to().unwrap();`.
+- Avoid wildcard imports such as `use crate::*`; they are allowed only in test modules.
+- Hide imports in Rustdoc examples with a `#` prefix when they should not appear in rendered documentation.
+- Place Rustdoc comments before outer attributes such as `#[derive(...)]` and `#[proc_macro_derive(...)]`.
+- Keep all intra-doc references valid. Run `cargo doc --workspace --no-deps` and resolve every broken-link warning before finishing documentation changes.
+- Prefer short public API names in rendered intra-doc links. Keep public items in scope for short links and use `#[allow(unused_imports)]` when an import exists only to resolve documentation links.
+- Use sentence casing for Markdown headings (e.g. `## Supported types`, not `## Supported Types`), except for identifiers, acronyms, or proper nouns that keep their own casing (e.g. `## API types`, `` ## Advanced: `SendObject` ``).
+- Within an `impl`, use `Self::Variant` for variants of the implemented type.
