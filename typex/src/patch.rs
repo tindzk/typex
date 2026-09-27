@@ -614,7 +614,6 @@ fn apply_operation<'p>(
     PatchOperation::MoveItem { path, from, to } => {
       let operation = PatchOperationKind::MoveItem;
       let (target, path) = resolve_target(root, path, operation)?;
-      let len = target.len();
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
           target,
@@ -624,9 +623,7 @@ fn apply_operation<'p>(
         ));
       };
       // Check the indices here so the error names the offending index.
-      let Some(len) = len else {
-        return Err(ApplyError::Unsupported { path, operation });
-      };
+      let len = sequence.len();
       if let Some(index) = move_index_out_of_bounds(from, to, len) {
         return Err(ApplyError::IndexOutOfBounds {
           path,

@@ -69,7 +69,7 @@ impl dyn Meta + '_ {
 
   /// Returns the shape of the innermost contained value, looking through
   /// options. An option without a value reports [`Reflect::Scalar`].
-  // A loop rather than recursion keeps the accessors below inlinable.
+  // A loop rather than recursion keeps this function inlinable.
   #[inline]
   fn reflect_through_option(&self) -> Reflect<'_> {
     let mut shape = self.reflect();
@@ -87,10 +87,7 @@ impl dyn Meta + '_ {
   /// Options forward the lookup to their contained value.
   #[inline]
   pub fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
-    match self.reflect_through_option() {
-      Reflect::Struct(value) => value.field(name),
-      _ => None,
-    }
+    self.field_dyn(name)
   }
 
   /// Returns the exposed field names in declaration order.

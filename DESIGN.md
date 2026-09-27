@@ -94,9 +94,15 @@ key steps are `'static`. Typed key steps exist only for maps with `String` or
 - `MetaMut::reflect_mut` returns a `ReflectMut` shape over
   `StructAccessMut`, `SequenceAccessMut`, `MapAccessMut` and
   `OptionAccessMut`, or `Opaque` when the value exposes no mutable structure.
-- `Meta` keeps only `type_info`, `reflect`, `eq_dyn`, `into_any` and `as_any`.
-  `MetaMut` keeps only `reflect_mut`, `set_dyn`, `replace_dyn`, `as_any_mut`
-  and the hidden `as_meta`.
+- `Meta` keeps only `type_info`, `reflect`, `field_dyn`, `eq_dyn`, `into_any`
+  and `as_any`. `MetaMut` keeps only `reflect_mut`, `field_mut_dyn`,
+  `item_mut_dyn`, `key_mut_dyn`, `set_dyn`, `replace_dyn`, `as_any_mut` and the
+  hidden `as_meta`.
+- `field_dyn`, `field_mut_dyn`, `item_mut_dyn` and `key_mut_dyn` default to
+  going through the shape. The derives and built-in implementations override
+  them with direct lookups.
+- `SequenceAccessMut` extends `SequenceAccess`, so a mutable sequence shape
+  also reports its length.
 - Callers use inherent methods with the familiar names, such as `len`, `key`
   and `field_mut`, on `dyn Meta`, `dyn MetaMut`, `dyn SendMeta` and the
   `Object*` wrappers. These methods dispatch on the shape.
@@ -120,6 +126,14 @@ whole-value replacement needs a per-type implementation for every shape.
 
 Deriving the kind from the shape also means that a value cannot report a map
 without providing map access, or a sequence without a length.
+
+Reaching a field through the shape costs two dynamic calls, one for `reflect`
+and one for the access method, and the shape is too large to return in
+registers. Path resolution performs one lookup per segment, so the navigation
+methods stay on the traits as single dynamic calls. The `_dyn` suffix, shared
+with `eq_dyn` and `set_dyn`, keeps them from shadowing inherent methods.
+Patch and mutation batch operations that need a sequence length read it from
+the matched `SequenceAccessMut` instead of calling `reflect` again.
 
 ### Consequences
 

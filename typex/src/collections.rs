@@ -94,6 +94,10 @@ macro_rules! impl_meta_forward {
         (**self).reflect()
       }
 
+      fn field_dyn(&self, name: &str) -> Option<ObjectRef<'_>> {
+        (**self).field_dyn(name)
+      }
+
       fn eq_dyn(&self, other: &dyn Meta) -> bool {
         other
           .as_any()
@@ -124,6 +128,18 @@ macro_rules! impl_meta_mut_forward {
         (**self).reflect_mut()
       }
 
+      fn field_mut_dyn(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
+        (**self).field_mut_dyn(name)
+      }
+
+      fn item_mut_dyn(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
+        (**self).item_mut_dyn(index)
+      }
+
+      fn key_mut_dyn(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
+        (**self).key_mut_dyn(key)
+      }
+
       fn as_any_mut(&mut self) -> &mut dyn Any {
         self
       }
@@ -142,6 +158,18 @@ macro_rules! impl_meta_mut_forward {
           Some(inner) => inner.reflect_mut(),
           None => ReflectMut::Opaque,
         }
+      }
+
+      fn field_mut_dyn(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
+        $wrapper::get_mut(self)?.field_mut_dyn(name)
+      }
+
+      fn item_mut_dyn(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
+        $wrapper::get_mut(self)?.item_mut_dyn(index)
+      }
+
+      fn key_mut_dyn(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
+        $wrapper::get_mut(self)?.key_mut_dyn(key)
       }
 
       fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -365,6 +393,10 @@ macro_rules! impl_seq_meta_mut {
 
       fn reflect_mut(&mut self) -> ReflectMut<'_> {
         ReflectMut::Sequence(self)
+      }
+
+      fn item_mut_dyn(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
+        SequenceAccessMut::item_mut(self, index)
       }
 
       fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -627,6 +659,10 @@ where
     )
   }
 
+  fn field_dyn(&self, name: &str) -> Option<ObjectRef<'_>> {
+    self.as_ref()?.field_dyn(name)
+  }
+
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
     self
   }
@@ -644,6 +680,22 @@ where
 
   fn reflect_mut(&mut self) -> ReflectMut<'_> {
     ReflectMut::Option(self)
+  }
+
+  fn field_mut_dyn(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
+    self.as_mut()?.field_mut_dyn(name)
+  }
+
+  fn item_mut_dyn(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
+    if index == 0 {
+      OptionAccessMut::value_mut(self)
+    } else {
+      None
+    }
+  }
+
+  fn key_mut_dyn(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
+    self.as_mut()?.key_mut_dyn(key)
   }
 
   fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -1009,6 +1061,10 @@ macro_rules! impl_map_mut {
 
       fn reflect_mut(&mut self) -> ReflectMut<'_> {
         ReflectMut::Map(self)
+      }
+
+      fn key_mut_dyn(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
+        MapAccessMut::key_mut(self, key)
       }
 
       fn as_any_mut(&mut self) -> &mut dyn Any {

@@ -577,7 +577,6 @@ fn apply_staged_operation(
     OwnedPatchOperation::PushItem { path, value } => {
       let operation_kind = PatchOperationKind::PushItem;
       let target = resolve(target, &path, operation_kind)?;
-      let len = target.len();
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
           target,
@@ -586,9 +585,7 @@ fn apply_staged_operation(
           ValueKind::Sequence,
         ));
       };
-      let Some(index) = len else {
-        return Err(unsupported_error(&path, operation_kind));
-      };
+      let index = sequence.len();
       sequence
         .push_item(value)
         .map_err(|_| unsupported_error(&path, operation_kind))?;
@@ -617,7 +614,6 @@ fn apply_staged_operation(
     OwnedPatchOperation::MoveItem { path, from, to } => {
       let operation_kind = PatchOperationKind::MoveItem;
       let target = resolve(target, &path, operation_kind)?;
-      let len = target.len();
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
           target,
@@ -626,9 +622,8 @@ fn apply_staged_operation(
           ValueKind::Sequence,
         ));
       };
-      if let Some((index, len)) =
-        len.and_then(|len| move_index_out_of_bounds(from, to, len).map(|index| (index, len)))
-      {
+      let len = sequence.len();
+      if let Some(index) = move_index_out_of_bounds(from, to, len) {
         return Err(CommitOperationError::IndexOutOfBounds {
           path,
           operation: operation_kind,

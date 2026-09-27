@@ -268,6 +268,18 @@ pub trait Meta: Any {
   /// names while returning the same variant.
   fn reflect(&self) -> Reflect<'_>;
 
+  /// Returns an exposed field by name, forwarding through options.
+  ///
+  /// The default implementation goes through [`Meta::reflect`]. The derive
+  /// overrides it with a direct lookup.
+  fn field_dyn(&self, name: &str) -> Option<ObjectRef<'_>> {
+    match self.reflect() {
+      Reflect::Struct(value) => value.field(name),
+      Reflect::Option(value) => value?.field(name),
+      _ => None,
+    }
+  }
+
   /// Compares two [`Meta`] values structurally.
   ///
   /// Values with different [`Meta::type_info`] are never equal. Otherwise the
@@ -365,6 +377,42 @@ pub trait MetaMut: Meta {
   /// Returns this value's mutable structural shape.
   fn reflect_mut(&mut self) -> ReflectMut<'_>;
 
+  /// Returns a mutable field by name, forwarding through options.
+  ///
+  /// The default implementation goes through [`MetaMut::reflect_mut`]. The
+  /// derive overrides it with a direct lookup.
+  fn field_mut_dyn(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
+    match self.reflect_mut() {
+      ReflectMut::Struct(value) => value.field_mut(name),
+      ReflectMut::Option(value) => value.value_mut()?.inner.field_mut_dyn(name),
+      _ => None,
+    }
+  }
+
+  /// Returns a mutable item at `index`. An option exposes its contained value
+  /// at index 0.
+  ///
+  /// The default implementation goes through [`MetaMut::reflect_mut`].
+  fn item_mut_dyn(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
+    match self.reflect_mut() {
+      ReflectMut::Struct(value) => value.item_mut(index),
+      ReflectMut::Sequence(value) => value.item_mut(index),
+      ReflectMut::Option(value) if index == 0 => value.value_mut(),
+      _ => None,
+    }
+  }
+
+  /// Returns a mutable value for `key`, forwarding through options.
+  ///
+  /// The default implementation goes through [`MetaMut::reflect_mut`].
+  fn key_mut_dyn(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
+    match self.reflect_mut() {
+      ReflectMut::Map(value) => value.key_mut(key),
+      ReflectMut::Option(value) => value.value_mut()?.inner.key_mut_dyn(key),
+      _ => None,
+    }
+  }
+
   /// Overwrites the whole value with `value` and drops the previous value.
   ///
   /// Returns `value` in `Err` if its concrete type differs from `Self`.
@@ -405,7 +453,7 @@ impl dyn MetaMut + '_ {
   /// Returns the mutable shape of the innermost contained value, looking
   /// through options. An option without a value reports
   /// [`ReflectMut::Opaque`].
-  // A loop rather than recursion keeps the accessors below inlinable.
+  // A loop rather than recursion keeps this function inlinable.
   #[inline]
   fn reflect_mut_through_option(&mut self) -> ReflectMut<'_> {
     let mut shape = self.reflect_mut();
@@ -425,10 +473,7 @@ impl dyn MetaMut + '_ {
   /// Options forward the lookup to their contained value.
   #[inline]
   pub fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
-    match self.reflect_mut_through_option() {
-      ReflectMut::Struct(value) => value.field_mut(name),
-      _ => None,
-    }
+    self.field_mut_dyn(name)
   }
 
   /// Returns a mutable item at `index`.
@@ -436,12 +481,7 @@ impl dyn MetaMut + '_ {
   /// An option exposes its contained value at index 0.
   #[inline]
   pub fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
-    match self.reflect_mut() {
-      ReflectMut::Struct(value) => value.item_mut(index),
-      ReflectMut::Sequence(value) => value.item_mut(index),
-      ReflectMut::Option(value) if index == 0 => value.value_mut(),
-      _ => None,
-    }
+    self.item_mut_dyn(index)
   }
 
   /// Returns a mutable value for `key`.
@@ -449,10 +489,7 @@ impl dyn MetaMut + '_ {
   /// Options forward the lookup to their contained value.
   #[inline]
   pub fn key_mut(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
-    match self.reflect_mut_through_option() {
-      ReflectMut::Map(value) => value.key_mut(key),
-      _ => None,
-    }
+    self.key_mut_dyn(key)
   }
 
   /// Inserts `value` under `key`; see [`MapAccessMut::insert_key`].

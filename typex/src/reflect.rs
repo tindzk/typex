@@ -153,7 +153,7 @@ pub trait StructAccessMut {
 /// Insertion and appending accept an already-built [`Object`] and return it in
 /// `Err` when the operation is unsupported, the index is out of bounds or the
 /// concrete type differs from the item type.
-pub trait SequenceAccessMut {
+pub trait SequenceAccessMut: SequenceAccess {
   /// Returns a mutable item at `index`.
   fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>>;
 
