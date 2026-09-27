@@ -504,19 +504,18 @@ fn resolve_target<'a, 'p>(
   }
 }
 
-/// Reports why `target` exposes no mutable shape for an operation that needs
+/// Reports why a value exposes no mutable shape for an operation that needs
 /// `expected`.
 ///
 /// Callers match on [`MetaMut::reflect_mut`] first and compute the kind only on
 /// this error path. A target of the expected kind without matching mutable
 /// structure, such as a `BTreeSet`, does not support the operation.
 fn container_error<'p>(
-  target: &dyn MetaMut,
+  actual: ValueKind,
   path: Vec<PathSegment<'p>>,
   operation: PatchOperationKind,
   expected: ValueKind,
 ) -> ApplyError<'p> {
-  let actual = target.kind();
   if actual == expected {
     ApplyError::Unsupported { path, operation }
   } else {
@@ -564,7 +563,12 @@ fn apply_operation<'p>(
       let operation = PatchOperationKind::InsertKey;
       let (target, path) = resolve_target(root, path, operation)?;
       let ReflectMut::Map(map) = target.reflect_mut() else {
-        return Err(container_error(target, path, operation, ValueKind::Map));
+        return Err(container_error(
+          target.kind(),
+          path,
+          operation,
+          ValueKind::Map,
+        ));
       };
       unsupported(map.insert_key(&key, value), path, operation)?;
     }
@@ -572,7 +576,12 @@ fn apply_operation<'p>(
       let operation = PatchOperationKind::RemoveKey;
       let (target, path) = resolve_target(root, path, operation)?;
       let ReflectMut::Map(map) = target.reflect_mut() else {
-        return Err(container_error(target, path, operation, ValueKind::Map));
+        return Err(container_error(
+          target.kind(),
+          path,
+          operation,
+          ValueKind::Map,
+        ));
       };
       unsupported(map.remove_key(&key).ok_or(()), path, operation)?;
     }
@@ -581,7 +590,7 @@ fn apply_operation<'p>(
       let (target, path) = resolve_target(root, path, operation)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target,
+          target.kind(),
           path,
           operation,
           ValueKind::Sequence,
@@ -594,7 +603,7 @@ fn apply_operation<'p>(
       let (target, path) = resolve_target(root, path, operation)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target,
+          target.kind(),
           path,
           operation,
           ValueKind::Sequence,
@@ -607,7 +616,7 @@ fn apply_operation<'p>(
       let (target, path) = resolve_target(root, path, operation)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target,
+          target.kind(),
           path,
           operation,
           ValueKind::Sequence,
@@ -620,7 +629,7 @@ fn apply_operation<'p>(
       let (target, path) = resolve_target(root, path, operation)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target,
+          target.kind(),
           path,
           operation,
           ValueKind::Sequence,

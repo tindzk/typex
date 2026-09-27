@@ -433,19 +433,18 @@ fn resolve_path<'a>(target: &'a mut dyn MetaMut, path: &OwnedPath) -> Option<&'a
   Some(current)
 }
 
-/// Reports why `target` exposes no mutable shape for an operation that needs
+/// Reports why a value exposes no mutable shape for an operation that needs
 /// `expected`.
 ///
 /// Callers match on [`MetaMut::reflect_mut`] first and compute the kind only on
 /// this error path. A target of the expected kind without matching mutable
 /// structure, such as a `BTreeSet`, does not support the operation.
 fn container_error(
-  target: &dyn MetaMut,
+  actual: ValueKind,
   path: &OwnedPath,
   operation: PatchOperationKind,
   expected: ValueKind,
 ) -> CommitOperationError {
-  let actual = target.kind();
   if actual == expected {
     unsupported_error(path, operation)
   } else {
@@ -509,7 +508,7 @@ fn apply_staged_operation(
       let target = resolve(target, &path, operation_kind)?;
       let ReflectMut::Map(map) = target.reflect_mut() else {
         return Err(container_error(
-          target,
+          target.kind(),
           &path,
           operation_kind,
           ValueKind::Map,
@@ -540,7 +539,7 @@ fn apply_staged_operation(
       let target = resolve(target, &path, operation_kind)?;
       let ReflectMut::Map(map) = target.reflect_mut() else {
         return Err(container_error(
-          target,
+          target.kind(),
           &path,
           operation_kind,
           ValueKind::Map,
@@ -563,7 +562,7 @@ fn apply_staged_operation(
       let target = resolve(target, &path, operation_kind)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target,
+          target.kind(),
           &path,
           operation_kind,
           ValueKind::Sequence,
@@ -579,7 +578,7 @@ fn apply_staged_operation(
       let target = resolve(target, &path, operation_kind)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target,
+          target.kind(),
           &path,
           operation_kind,
           ValueKind::Sequence,
@@ -596,7 +595,7 @@ fn apply_staged_operation(
       let target = resolve(target, &path, operation_kind)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target,
+          target.kind(),
           &path,
           operation_kind,
           ValueKind::Sequence,
@@ -616,7 +615,7 @@ fn apply_staged_operation(
       let target = resolve(target, &path, operation_kind)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target,
+          target.kind(),
           &path,
           operation_kind,
           ValueKind::Sequence,
