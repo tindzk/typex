@@ -13,6 +13,15 @@ struct Number(u16);
 #[derive(Debug, PartialEq, Meta)]
 struct Flag(bool);
 
+#[derive(Meta, MetaMut)]
+struct Query;
+
+impl Query {
+  fn id(&self) -> &'static str {
+    "query"
+  }
+}
+
 #[derive(Debug, PartialEq, Eq, Meta)]
 struct NonCloneMarker;
 
@@ -38,6 +47,52 @@ fn derives_do_not_require_debug() {
     .set(Object::new(NonDebugValue(8)))
     .unwrap();
   assert_eq!(value.0, 8);
+}
+
+// The closure receives `&&str`; these calls must resolve to inherent `str`
+// methods even though the derive traits are in scope.
+#[allow(clippy::len_zero)]
+#[test]
+fn str_methods_resolve_through_references() {
+  let query = "a b";
+
+  let non_empty: usize = query
+    .split_whitespace()
+    .filter(|part| !part.is_empty())
+    .count();
+  let non_zero: usize = query
+    .split_whitespace()
+    .filter(|part| part.len() > 0)
+    .count();
+
+  assert_eq!(non_empty, 2);
+  assert_eq!(non_zero, 2);
+}
+
+#[test]
+fn smart_pointer_methods_resolve_to_inner_values() {
+  let boxed: Box<Vec<u8>> = Box::new(vec![1, 2]);
+  let shared: Rc<String> = Rc::new(String::new());
+  let atomic: Arc<Vec<u8>> = Arc::new(Vec::new());
+  let map: Box<BTreeMap<u8, u8>> = Box::new(BTreeMap::from([(1, 2)]));
+  let mut text: Box<String> = Box::new(String::from("a-b"));
+  let query: Box<Query> = Box::new(Query);
+
+  let boxed_len: usize = boxed.len();
+  let shared_empty: bool = shared.is_empty();
+  let atomic_empty: bool = atomic.is_empty();
+  let keys: Vec<&u8> = map.keys().collect();
+  let replaced: String = text.replace('-', "+");
+  text.push('!');
+  let id: &str = query.id();
+
+  assert_eq!(boxed_len, 2);
+  assert!(shared_empty);
+  assert!(atomic_empty);
+  assert_eq!(keys, vec![&1]);
+  assert_eq!(replaced, "a+b");
+  assert_eq!(*text, "a-b!");
+  assert_eq!(id, "query");
 }
 
 #[test]
@@ -314,6 +369,8 @@ fn derive_meta_exposes_struct_fields() {
   let labels = ObjectRef::new(&payload).field("labels").unwrap();
   assert_eq!(labels.len(), Some(1));
   assert_eq!(labels.item(0).unwrap().field_names(), &["name"]);
+  let labels: &dyn Meta = &payload.labels;
+  assert_eq!(labels.is_empty(), Some(false));
   assert_eq!(
     ObjectRef::new(&payload)
       .field("queued_labels")
