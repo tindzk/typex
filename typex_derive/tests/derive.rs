@@ -3,8 +3,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use typex::{
-  AccessKind, FieldPath, FieldPathMut, Meta, MetaMut, Object, ObjectOps, PatchOperation,
-  PathSegment, TypeInfo, TypedField, TypedMapAccess, TypedMapAccessMut,
+  AccessKind, FieldPath, FieldPathMut, Meta, MetaMut, Object, ObjectOps, ObjectRef, ObjectRefMut,
+  PatchOperation, PathSegment, TypeInfo, TypedField, TypedMapAccess, TypedMapAccessMut,
 };
 
 #[derive(Debug, PartialEq, Meta)]
@@ -34,7 +34,7 @@ fn derives_do_not_require_debug() {
   assert!(format!("{object:?}").contains("NonDebugValue"));
 
   value = object.to::<NonDebugValue>().unwrap();
-  typex::ObjectRefMut::new(&mut value)
+  ObjectRefMut::new(&mut value)
     .set(Object::new(NonDebugValue(8)))
     .unwrap();
   assert_eq!(value.0, 8);
@@ -79,15 +79,13 @@ impl PartialEq for StructuralPartialEqRecord {
 fn derives_preserve_generics_and_opaque_mode() {
   let mut generic = GenericRecord { value: 3_u8 };
   assert_eq!(
-    typex::ObjectRef::new(&generic).field_path(GenericRecord::<u8>::FIELD_VALUE.path()),
+    ObjectRef::new(&generic).field_path(GenericRecord::<u8>::FIELD_VALUE.path()),
     Some(&3)
   );
 
-  typex::ObjectRefMut::new(&mut generic)
+  *ObjectRefMut::new(&mut generic)
     .field_path_mut(GenericRecord::<u8>::FIELD_VALUE.path())
-    .unwrap()
-    .set(Object::new(4_u8))
-    .unwrap();
+    .unwrap() = 4;
   assert_eq!(generic.value, 4);
 
   let opaque = OpaqueRecord(7_u8);
@@ -183,7 +181,10 @@ fn derive_meta_is_structural_for_tuple_structs_by_default() {
 
   assert_eq!(ObjectRef::new(&value).kind(), typex::ValueKind::Struct);
   assert_eq!(ObjectRef::new(&value).len(), Some(1));
-  assert_eq!(ObjectRef::new(&value).item(0).unwrap().to_ref::<u16>(), Some(&7));
+  assert_eq!(
+    ObjectRef::new(&value).item(0).unwrap().to_ref::<u16>(),
+    Some(&7)
+  );
 }
 
 #[test]
@@ -211,7 +212,10 @@ fn derive_meta_mut_does_not_require_clone_for_basic_usage() {
 
   assert_eq!(ObjectRef::new(&record).field_names(), &["count"]);
   assert_eq!(
-    ObjectRef::new(&record).field("count").unwrap().to_ref::<u8>(),
+    ObjectRef::new(&record)
+      .field("count")
+      .unwrap()
+      .to_ref::<u8>(),
     Some(&4)
   );
 }
@@ -263,7 +267,7 @@ fn derive_meta_exposes_struct_fields() {
     ]
   );
   assert_eq!(
-    typex::ObjectRef::new(&payload).access_kind(),
+    ObjectRef::new(&payload).access_kind(),
     Some(AccessKind::Field)
   );
   assert_eq!(
@@ -364,7 +368,10 @@ fn derive_meta_exposes_struct_fields() {
     Some(1)
   );
   assert_eq!(
-    ObjectRef::new(&payload).field("absent_label").unwrap().len(),
+    ObjectRef::new(&payload)
+      .field("absent_label")
+      .unwrap()
+      .len(),
     Some(0)
   );
   assert!(
@@ -385,7 +392,10 @@ fn derive_meta_exposes_struct_fields() {
       .to_ref::<&'static str>(),
     Some(&"result")
   );
-  assert_eq!(ObjectRef::new(&payload).field("pair").unwrap().len(), Some(2));
+  assert_eq!(
+    ObjectRef::new(&payload).field("pair").unwrap().len(),
+    Some(2)
+  );
   assert_eq!(
     ObjectRef::new(&payload)
       .field("pair")
@@ -535,7 +545,7 @@ fn derive_meta_generates_typed_paths() {
     Some(&"nested")
   );
 
-  let mut root = typex::ObjectRefMut::new(&mut payload);
+  let mut root = ObjectRefMut::new(&mut payload);
   root
     .set_field_path(TypedPayload::FIELD_LABEL.path(), Label { name: "direct2" })
     .unwrap();
@@ -595,7 +605,7 @@ fn derive_meta_generates_typed_paths_for_supported_maps() {
   );
 
   *payload.field_path_mut(name).unwrap() = "updated";
-  let mut root = typex::ObjectRefMut::new(&mut payload);
+  let mut root = ObjectRefMut::new(&mut payload);
   root
     .set_field_path(TypedMapPayload::FIELD_BORROWED.key("count"), 2)
     .unwrap();
@@ -659,29 +669,27 @@ fn derive_meta_generates_typed_enum_paths() {
     &[PathSegment::Field("Struct"), PathSegment::Field("count")]
   );
   assert_eq!(
-    typex::ObjectRef::new(&value).field_path(Status::FIELD_STRUCT_COUNT.path()),
+    ObjectRef::new(&value).field_path(Status::FIELD_STRUCT_COUNT.path()),
     Some(&3)
   );
 
-  typex::ObjectRefMut::new(&mut value)
+  *ObjectRefMut::new(&mut value)
     .field_path_mut(Status::FIELD_STRUCT_COUNT.path())
-    .unwrap()
-    .set(Object::new(4_u8))
-    .unwrap();
+    .unwrap() = 4;
 
   assert_eq!(value, Status::Struct { count: 4 });
 
   let tuple = Status::Tuple(9, true);
   assert_eq!(
-    typex::ObjectRef::new(&tuple).field_path(Status::FIELD_TUPLE_0.path()),
+    ObjectRef::new(&tuple).field_path(Status::FIELD_TUPLE_0.path()),
     Some(&9)
   );
   assert_eq!(
-    typex::ObjectRef::new(&tuple).field_path(Status::FIELD_TUPLE_1.path()),
+    ObjectRef::new(&tuple).field_path(Status::FIELD_TUPLE_1.path()),
     Some(&true)
   );
   assert_eq!(
-    typex::ObjectRef::new(&Status::Ready).field_path(Status::FIELD_READY.path()),
+    ObjectRef::new(&Status::Ready).field_path(Status::FIELD_READY.path()),
     Some(&Status::Ready)
   );
 }
@@ -693,7 +701,7 @@ fn set_field_path_reports_path_and_runtime_type_errors() {
     labels: vec![Label { name: "nested" }],
     bytes: [0x0a, 0xff],
   };
-  let mut root = typex::ObjectRefMut::new(&mut payload);
+  let mut root = ObjectRefMut::new(&mut payload);
 
   assert_eq!(
     root.set_field_path(
@@ -915,7 +923,10 @@ fn derive_meta_mut_supports_tuple_and_unit_enum_variants() {
     .unwrap()
     .to_mut::<u8>()
     .unwrap() = 90;
-  assert_eq!(ObjectRef::new(&tuple).item(0).unwrap().to_ref::<u8>(), Some(&90));
+  assert_eq!(
+    ObjectRef::new(&tuple).item(0).unwrap().to_ref::<u8>(),
+    Some(&90)
+  );
   *ObjectRefMut::new(&mut tuple)
     .field_mut("Tuple")
     .unwrap()
@@ -943,12 +954,15 @@ fn derive_meta_mut_supports_tuple_and_unit_enum_variants() {
 fn derive_meta_supports_tuple_and_unit_enum_variants() {
   let tuple = Status::Tuple(9, true);
   assert_eq!(
-    typex::ObjectRef::new(&tuple).access_kind(),
+    ObjectRef::new(&tuple).access_kind(),
     Some(AccessKind::Field)
   );
   assert_eq!(ObjectRef::new(&tuple).field_names(), &["Tuple", "0", "1"]);
   assert_eq!(ObjectRef::new(&tuple).len(), Some(2));
-  assert_eq!(ObjectRef::new(&tuple).item(0).unwrap().to_ref::<u8>(), Some(&9));
+  assert_eq!(
+    ObjectRef::new(&tuple).item(0).unwrap().to_ref::<u8>(),
+    Some(&9)
+  );
   assert_eq!(
     ObjectRef::new(&tuple)
       .field("Tuple")
@@ -961,7 +975,7 @@ fn derive_meta_supports_tuple_and_unit_enum_variants() {
 
   let ready = Status::Ready;
   assert_eq!(
-    typex::ObjectRef::new(&ready).access_kind(),
+    ObjectRef::new(&ready).access_kind(),
     Some(AccessKind::Field)
   );
   assert_eq!(ObjectRef::new(&ready).field_names(), &["Ready"]);
@@ -978,12 +992,12 @@ fn derive_meta_supports_tuple_and_unit_enum_variants() {
 fn derive_meta_reports_access_kind_for_struct_shapes() {
   let tuple = TupleRecord(7);
   assert_eq!(
-    typex::ObjectRef::new(&tuple).access_kind(),
+    ObjectRef::new(&tuple).access_kind(),
     Some(AccessKind::Field)
   );
 
   let unit = UnitRecord;
-  assert_eq!(typex::ObjectRef::new(&unit).access_kind(), None);
+  assert_eq!(ObjectRef::new(&unit).access_kind(), None);
 }
 
 // Deliberately not `Clone`: Owned exact-type conversion still works through
@@ -1152,7 +1166,7 @@ fn recursive_types_derive() {
       PathSegment::Item(0),
       PathSegment::Field("value"),
     ]),
-    Some(typex::ObjectRef::new(&2_u8))
+    Some(ObjectRef::new(&2_u8))
   );
 
   let tree = Tree {
@@ -1202,7 +1216,7 @@ fn generic_field_types_get_their_own_bounds() {
 
   assert_eq!(
     value.field_path(&[PathSegment::Field("entries"), PathSegment::Key("a")]),
-    Some(typex::ObjectRef::new(&1_u8))
+    Some(ObjectRef::new(&1_u8))
   );
 }
 
@@ -1228,7 +1242,7 @@ fn generic_bounds_distinguish_same_named_types() {
 
   assert_eq!(
     value.field_path(&[PathSegment::Field("child"), PathSegment::Field("value")]),
-    Some(typex::ObjectRef::new(&1_u8))
+    Some(ObjectRef::new(&1_u8))
   );
   *ObjectRefMut::new(&mut value)
     .field_mut("child")
@@ -1243,7 +1257,7 @@ fn generic_bounds_distinguish_same_named_types() {
 mod shadowed_names {
   #![allow(dead_code)]
 
-  use typex::{Meta, MetaMut, ObjectRef};
+  use typex::{Meta, MetaMut, ObjectRef, ObjectRefMut};
 
   type Result<T> = ::core::result::Result<T, ()>;
   type Option = ();

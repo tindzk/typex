@@ -67,7 +67,10 @@ fn tuple_meta_exposes_indexed_access() {
 
   assert_eq!(ObjectRef::new(&pair).field_names(), &["0", "1"]);
   assert_eq!(ObjectRef::new(&pair).len(), Some(2));
-  assert_eq!(ObjectRef::new(&pair).item(0).unwrap().to_ref::<u8>(), Some(&7));
+  assert_eq!(
+    ObjectRef::new(&pair).item(0).unwrap().to_ref::<u8>(),
+    Some(&7)
+  );
   assert_eq!(
     ObjectRef::new(&pair).field("1").unwrap().to_ref::<bool>(),
     Some(&true)
@@ -90,9 +93,15 @@ fn map_meta_supports_typed_lookup_for_non_string_keys() {
 fn map_meta_supports_string_lookup_for_string_keys() {
   let map = BTreeMap::from([(String::from("primary"), Number(11))]);
 
-  assert_eq!(ObjectRef::new(&map).keys(), Some(vec!["primary".to_string()]));
   assert_eq!(
-    ObjectRef::new(&map).key("primary").unwrap().to_ref::<Number>(),
+    ObjectRef::new(&map).keys(),
+    Some(vec!["primary".to_string()])
+  );
+  assert_eq!(
+    ObjectRef::new(&map)
+      .key("primary")
+      .unwrap()
+      .to_ref::<Number>(),
     Some(&Number(11))
   );
 }
@@ -131,16 +140,15 @@ fn map_entries_visit_non_string_keys_without_stringifying_lookup() {
   let numbers = BTreeMap::from([(7usize, Number(11)), (9usize, Number(13))]);
   let mut seen = Vec::new();
 
-  assert!(
-    ObjectRef::new(&numbers)
-      .visit_map_entries(&mut |key: AnyRef<'_>, value: ObjectRef<'_>| {
-        seen.push((
-          *key.to_ref::<usize>().unwrap(),
-          value.to_ref::<Number>().unwrap().0,
-        ));
-        true
-      })
-  );
+  assert!(ObjectRef::new(&numbers).visit_map_entries(
+    &mut |key: AnyRef<'_>, value: ObjectRef<'_>| {
+      seen.push((
+        *key.to_ref::<usize>().unwrap(),
+        value.to_ref::<Number>().unwrap().0,
+      ));
+      true
+    }
+  ));
 
   assert_eq!(seen, vec![(7, 11), (9, 13)]);
   assert!(ObjectRef::new(&numbers).keys().is_none());
@@ -151,16 +159,15 @@ fn map_entries_can_stop_early() {
   let numbers = BTreeMap::from([(7usize, Number(11)), (9usize, Number(13))]);
   let mut seen = Vec::new();
 
-  assert!(
-    ObjectRef::new(&numbers)
-      .visit_map_entries(&mut |key: AnyRef<'_>, value: ObjectRef<'_>| {
-        seen.push((
-          *key.to_ref::<usize>().unwrap(),
-          value.to_ref::<Number>().unwrap().0,
-        ));
-        false
-      })
-  );
+  assert!(ObjectRef::new(&numbers).visit_map_entries(
+    &mut |key: AnyRef<'_>, value: ObjectRef<'_>| {
+      seen.push((
+        *key.to_ref::<usize>().unwrap(),
+        value.to_ref::<Number>().unwrap().0,
+      ));
+      false
+    }
+  ));
 
   assert_eq!(seen, vec![(7, 11)]);
 }
@@ -178,7 +185,10 @@ fn wrapper_and_collection_meta_forward_access() {
   let heap = BinaryHeap::from([15u8, 16u8]);
 
   assert_eq!(ObjectRef::new(&boxed).field_names(), &["0", "1"]);
-  assert_eq!(ObjectRef::new(&boxed).item(0).unwrap().to_ref::<u8>(), Some(&7));
+  assert_eq!(
+    ObjectRef::new(&boxed).item(0).unwrap().to_ref::<u8>(),
+    Some(&7)
+  );
   assert_eq!(ObjectRef::new(&shared).len(), Some(2));
   assert_eq!(
     ObjectRef::new(&shared).item(1).unwrap().to_ref::<Number>(),
@@ -218,14 +228,20 @@ fn indexed_key_meta_exposes_access_by_key_and_index() {
     ("secondary".to_owned(), Number(9)),
   ]);
 
-  assert_eq!(ObjectRef::new(&items).access_kind(), Some(AccessKind::ItemKey));
+  assert_eq!(
+    ObjectRef::new(&items).access_kind(),
+    Some(AccessKind::ItemKey)
+  );
   assert_eq!(ObjectRef::new(&items).len(), Some(2));
   assert_eq!(
     ObjectRef::new(&items).item(1).unwrap().to_ref::<Number>(),
     Some(&Number(9))
   );
   assert_eq!(
-    ObjectRef::new(&items).key("primary").unwrap().to_ref::<Number>(),
+    ObjectRef::new(&items)
+      .key("primary")
+      .unwrap()
+      .to_ref::<Number>(),
     Some(&Number(7))
   );
   assert_eq!(

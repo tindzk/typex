@@ -5,7 +5,7 @@ use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
 use typex::{
-  FieldPath, Meta, Object, ObjectOps, ObjectRefMut, PathSegment, SendObject, TypedMapAccess,
+  FieldPath, Object, ObjectOps, ObjectRef, ObjectRefMut, PathSegment, SendObject, TypedMapAccess,
 };
 use typex_derive::{Meta, MetaMut};
 
@@ -109,7 +109,10 @@ fn meta_smoke_test() {
     Some(1)
   );
   assert_eq!(
-    ObjectRef::new(&payload).field("absent_label").unwrap().len(),
+    ObjectRef::new(&payload)
+      .field("absent_label")
+      .unwrap()
+      .len(),
     Some(0)
   );
   assert!(
@@ -234,7 +237,10 @@ fn tuple_and_unit_enum_variants_are_accessible() {
   let tuple = Status::Tuple(9, true);
   assert_eq!(ObjectRef::new(&tuple).field_names(), &["Tuple", "0", "1"]);
   assert_eq!(ObjectRef::new(&tuple).len(), Some(2));
-  assert_eq!(ObjectRef::new(&tuple).item(0).unwrap().to_ref::<u8>(), Some(&9));
+  assert_eq!(
+    ObjectRef::new(&tuple).item(0).unwrap().to_ref::<u8>(),
+    Some(&9)
+  );
   assert_eq!(
     ObjectRef::new(&tuple)
       .field("Tuple")

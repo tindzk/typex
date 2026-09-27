@@ -1,9 +1,9 @@
 // Keep public API names in scope for short intra-doc links.
 #[allow(unused_imports)]
 use crate::{
-  AccessKind, MoveItemError, SequenceAccessMut, ApplyError, FieldPathQuery, FieldPathQueryMut, MapEntryVisitor, Meta, MetaMut,
-  MutationBatch, PatchOperation, PathSegment, Reflect, ReflectiveError, TypeInfo, TypedPath,
-  ValueKind, apply_patch,
+  AccessKind, ApplyError, FieldPathQuery, FieldPathQueryMut, MapEntryVisitor, Meta, MetaMut,
+  MoveItemError, MutationBatch, PatchOperation, PathSegment, Reflect, ReflectiveError,
+  SequenceAccessMut, TypeInfo, TypedPath, ValueKind, apply_patch,
 };
 use alloc::boxed::Box;
 use alloc::rc::Rc;

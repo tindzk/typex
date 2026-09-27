@@ -16,9 +16,7 @@ fn set_overwrites_matching_type_in_place() {
 fn set_rejects_mismatched_type_and_returns_it_back() {
   let mut number = Number(1);
 
-  let object = ObjectRefMut::new(&mut number)
-    .set(Object::new(Text("hello")))
-    .unwrap_err();
+  let object = number.set_dyn(Object::new(Text("hello"))).unwrap_err();
 
   assert_eq!(number, Number(1));
   assert_eq!(object.to_ref::<Text>(), Some(&Text("hello")));
@@ -85,9 +83,7 @@ fn set_returns_error_when_replacement_is_rejected() {
 
   let mut opaque = Opaque;
 
-  let object = ObjectRefMut::new(&mut opaque)
-    .set(Object::new(Opaque))
-    .unwrap_err();
+  let object = opaque.set_dyn(Object::new(Opaque)).unwrap_err();
 
   assert!(object.is::<Opaque>());
 }
@@ -155,34 +151,15 @@ fn typed_field_paths_read_and_mutate_terminal_values() {
     .unwrap() = 9;
   assert_eq!(pair.count, 9);
 
-  let dyn_pair: &dyn Meta = &pair;
   assert_eq!(
-    dyn_pair.field_path(TypedField::<Pair, u16>::new("count").path()),
+    ObjectRef::new(&pair).field_path(TypedField::<Pair, u16>::new("count").path()),
     Some(&9)
   );
 
-  let dyn_pair: &mut dyn MetaMut = &mut pair;
-  *dyn_pair
+  *ObjectRefMut::new(&mut pair)
     .field_path_mut(TypedField::<Pair, u16>::new("count").path())
     .unwrap() = 11;
   assert_eq!(pair.count, 11);
-}
-
-#[test]
-fn dyn_meta_mut_field_path_mut_matches_object_ref_mut() {
-  let mut pair = Pair {
-    count: 1,
-    label: Text("x"),
-  };
-
-  let dyn_pair: &mut dyn MetaMut = &mut pair;
-  *dyn_pair
-    .field_path_mut(&[PathSegment::Field("count")])
-    .unwrap()
-    .to_mut::<u16>()
-    .unwrap() += 41;
-
-  assert_eq!(pair.count, 42);
 }
 
 #[test]
@@ -196,7 +173,7 @@ fn vec_item_mut_mutates_element_in_place() {
     .unwrap() = Number(20);
 
   assert_eq!(numbers, vec![Number(1), Number(20), Number(3)]);
-  assert!(ObjectRefMut::new(&mut numbers).item_mut(3).is_none());
+  assert!(ObjectRefMut::new(&mut numbers).item_mut(3).is_err());
 }
 
 #[test]
@@ -212,7 +189,7 @@ fn option_meta_mut_forwards_mutation_and_absence() {
     .0 = 70;
   assert_eq!(value, Some(Number(70)));
 
-  assert!(ObjectRefMut::new(&mut absent).item_mut(0).is_none());
+  assert!(ObjectRefMut::new(&mut absent).item_mut(0).is_err());
 }
 
 #[test]
@@ -227,7 +204,7 @@ fn result_meta_mut_exposes_active_variant() {
     .unwrap()
     .0 = 70;
   assert_eq!(ok, Ok(Number(70)));
-  assert!(ObjectRefMut::new(&mut ok).field_mut("Err").is_none());
+  assert!(ObjectRefMut::new(&mut ok).field_mut("Err").is_err());
 
   ObjectRefMut::new(&mut err)
     .item_mut(0)
@@ -266,7 +243,7 @@ fn map_meta_mut_supports_string_and_typed_key_lookup() {
     .unwrap()
     .0 = 11;
   assert_eq!(by_name.get("primary"), Some(&Number(11)));
-  assert!(ObjectRefMut::new(&mut by_name).key_mut("missing").is_none());
+  assert!(ObjectRefMut::new(&mut by_name).key_mut("missing").is_err());
 
   let mut by_id = BTreeMap::from([(7usize, Number(1))]);
   by_id
@@ -292,18 +269,18 @@ fn rc_and_arc_meta_mut_forward_only_when_uniquely_owned() {
     .unwrap();
 
   let _clone = Rc::clone(&rc);
-  assert!(ObjectRefMut::new(&mut rc).field_mut("count").is_none());
+  assert!(ObjectRefMut::new(&mut rc).field_mut("count").is_err());
   drop(_clone);
-  assert!(ObjectRefMut::new(&mut rc).field_mut("count").is_some());
+  assert!(ObjectRefMut::new(&mut rc).field_mut("count").is_ok());
 
   let mut arc = Arc::new(Pair {
     count: 1,
     label: Text("x"),
   });
   let _clone = Arc::clone(&arc);
-  assert!(ObjectRefMut::new(&mut arc).field_mut("count").is_none());
+  assert!(ObjectRefMut::new(&mut arc).field_mut("count").is_err());
   drop(_clone);
-  assert!(ObjectRefMut::new(&mut arc).field_mut("count").is_some());
+  assert!(ObjectRefMut::new(&mut arc).field_mut("count").is_ok());
 }
 
 #[test]
@@ -325,13 +302,17 @@ fn box_meta_mut_forwards_to_inner_value() {
 #[test]
 fn set_and_heap_meta_mut_have_no_structural_mutation_but_support_to_mut() {
   let mut set = BTreeSet::from([Number(1), Number(2)]);
-  assert!(ObjectRefMut::new(&mut set).item_mut(0).is_none());
-  assert!(ObjectRefMut::new(&mut set).to_mut::<BTreeSet<Number>>().is_some());
+  assert!(ObjectRefMut::new(&mut set).item_mut(0).is_err());
+  assert!(
+    ObjectRefMut::new(&mut set)
+      .to_mut::<BTreeSet<Number>>()
+      .is_ok()
+  );
   set.insert(Number(3));
   assert_eq!(set.len(), 3);
 
   let mut heap = BinaryHeap::from([Number(1), Number(2)]);
-  assert!(ObjectRefMut::new(&mut heap).item_mut(0).is_none());
+  assert!(ObjectRefMut::new(&mut heap).item_mut(0).is_err());
   heap.push(Number(3));
   assert_eq!(heap.len(), 3);
 }
@@ -552,7 +533,11 @@ fn map_insert_grows_string_keyed_maps_but_not_typed_or_wrong_value_type() {
   // Non-`String` keys can't be built from a `&str`, so `insert_key` declines.
   let mut by_id: BTreeMap<usize, Number> = BTreeMap::new();
   let value = Object::new(Number(7));
-  assert!(ObjectRefMut::new(&mut by_id).insert_key("7", value).is_err());
+  assert!(
+    ObjectRefMut::new(&mut by_id)
+      .insert_key("7", value)
+      .is_err()
+  );
   assert!(by_id.is_empty());
 }
 
@@ -574,18 +559,26 @@ fn insert_declines_for_static_str_keyed_maps() {
 #[test]
 fn remove_key_removes_string_and_static_str_keyed_entries() {
   let mut by_name = BTreeMap::from([(String::from("primary"), Number(1))]);
-  let removed = ObjectRefMut::new(&mut by_name).remove_key("primary").unwrap();
+  let removed = ObjectRefMut::new(&mut by_name)
+    .remove_key("primary")
+    .unwrap();
   assert_eq!(removed.to_ref::<Number>(), Some(&Number(1)));
   assert!(by_name.is_empty());
-  assert!(ObjectRefMut::new(&mut by_name).remove_key("primary").is_none());
+  assert!(
+    ObjectRefMut::new(&mut by_name)
+      .remove_key("primary")
+      .is_err()
+  );
 
   let mut by_static = BTreeMap::from([("primary", Number(2))]);
-  let removed = ObjectRefMut::new(&mut by_static).remove_key("primary").unwrap();
+  let removed = ObjectRefMut::new(&mut by_static)
+    .remove_key("primary")
+    .unwrap();
   assert_eq!(removed.to_ref::<Number>(), Some(&Number(2)));
   assert!(by_static.is_empty());
 
   let mut by_id = BTreeMap::from([(7_usize, Number(3))]);
-  assert!(ObjectRefMut::new(&mut by_id).remove_key("7").is_none());
+  assert!(ObjectRefMut::new(&mut by_id).remove_key("7").is_err());
   assert_eq!(by_id.get(&7), Some(&Number(3)));
 }
 
@@ -595,7 +588,9 @@ fn remove_key_removes_static_str_keyed_hash_map_entries() {
   use std::collections::HashMap;
 
   let mut by_static = HashMap::from([("primary", Number(2))]);
-  let removed = ObjectRefMut::new(&mut by_static).remove_key("primary").unwrap();
+  let removed = ObjectRefMut::new(&mut by_static)
+    .remove_key("primary")
+    .unwrap();
   assert_eq!(removed.to_ref::<Number>(), Some(&Number(2)));
   assert!(by_static.is_empty());
 }
