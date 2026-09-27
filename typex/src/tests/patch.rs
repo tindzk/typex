@@ -8,23 +8,8 @@ struct RejectMiddleInsert {
 }
 
 impl Meta for RejectMiddleInsert {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Sequence
-  }
-
-  fn access_kind(&self) -> Option<AccessKind> {
-    Some(AccessKind::Item)
-  }
-
-  fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-    self
-      .values
-      .get(index)
-      .map(|value| ObjectRef::new(value as &dyn Meta))
-  }
-
-  fn len(&self) -> Option<usize> {
-    Some(self.values.len())
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Sequence(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -36,9 +21,32 @@ impl Meta for RejectMiddleInsert {
   }
 }
 
+impl SequenceAccess for RejectMiddleInsert {
+  fn len(&self) -> usize {
+    self.values.len()
+  }
+
+  fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
+    self
+      .values
+      .get(index)
+      .map(|value| ObjectRef::new(value as &dyn Meta))
+  }
+}
+
 impl MetaMut for RejectMiddleInsert {
   set_body!();
 
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Sequence(self)
+  }
+
+  fn as_any_mut(&mut self) -> &mut dyn Any {
+    self
+  }
+}
+
+impl SequenceAccessMut for RejectMiddleInsert {
   fn move_item(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {
     move_item_by_remove_insert(self, from, to)
   }
@@ -61,10 +69,6 @@ impl MetaMut for RejectMiddleInsert {
 
   fn remove_item(&mut self, index: usize) -> Option<Object> {
     (index < self.values.len()).then(|| Object::new(self.values.remove(index)))
-  }
-
-  fn as_any_mut(&mut self) -> &mut dyn Any {
-    self
   }
 }
 
@@ -200,7 +204,9 @@ fn move_item_out_of_bounds_leaves_sequence_unchanged() {
 fn move_item_reports_out_of_bounds_source_index() {
   let mut items = vec![1_u8, 2_u8, 3_u8];
 
-  let result = items.apply([PatchOperation::move_item([], 3, 0)]);
+  let result = items
+    .dyn_meta_mut()
+    .apply([PatchOperation::move_item([], 3, 0)]);
 
   assert_eq!(
     result,
@@ -223,7 +229,9 @@ fn failed_move_restores_the_removed_item() {
     values: vec![1, 2, 3],
   };
 
-  let result = sequence.apply([PatchOperation::move_item([], 0, 2)]);
+  let result = sequence
+    .dyn_meta_mut()
+    .apply([PatchOperation::move_item([], 0, 2)]);
 
   assert!(matches!(
     result,
@@ -241,7 +249,9 @@ fn failed_move_reports_an_item_that_it_cannot_restore() {
     values: vec![1, 2, 3],
   };
 
-  let result = sequence.apply([PatchOperation::move_item([], 0, 2)]);
+  let result = sequence
+    .dyn_meta_mut()
+    .apply([PatchOperation::move_item([], 0, 2)]);
 
   assert_eq!(
     result,
@@ -292,8 +302,8 @@ fn patches_reject_non_string_map_keys() {
 struct NonClonePatchValue(u8);
 
 impl Meta for NonClonePatchValue {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Scalar
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Scalar
   }
 
   fn eq_dyn(&self, other: &dyn Meta) -> bool {
@@ -311,6 +321,10 @@ impl Meta for NonClonePatchValue {
 
 impl MetaMut for NonClonePatchValue {
   set_body!();
+
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Opaque
+  }
 
   fn as_any_mut(&mut self) -> &mut dyn Any {
     self

@@ -371,9 +371,6 @@ impl MutationBatch {
   /// If an operation fails, reverts the earlier operations and returns
   /// [`CommitError::OperationFailed`]. If reverting fails, returns
   /// [`CommitError::RollbackFailed`] and leaves `target` partially restored.
-  /// Sequence pushes require [`Meta::len`] so the batch can record which item
-  /// to remove during rollback. Otherwise the push fails with
-  /// [`CommitOperationError::Unsupported`].
   #[allow(clippy::result_large_err)]
   pub fn commit(self, target: &mut dyn MetaMut) -> Result<MutationRollback, CommitError> {
     // Each inverse replaces its operation, so the rollback reuses the batch

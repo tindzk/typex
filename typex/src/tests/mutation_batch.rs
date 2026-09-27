@@ -6,8 +6,8 @@ use core::any::Any;
 struct Rejecting;
 
 impl Meta for Rejecting {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Scalar
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Scalar
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -20,56 +20,20 @@ impl Meta for Rejecting {
 }
 
 impl MetaMut for Rejecting {
-  fn set(&mut self, value: Object) -> Result<(), Object> {
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Opaque
+  }
+
+  fn set_dyn(&mut self, value: Object) -> Result<(), Object> {
     Err(value)
   }
 
-  fn replace(&mut self, value: Object) -> Result<Object, Object> {
+  fn replace_dyn(&mut self, value: Object) -> Result<Object, Object> {
     Err(value)
   }
 
   fn as_meta(&self) -> &dyn Meta {
     self
-  }
-
-  fn as_any_mut(&mut self) -> &mut dyn Any {
-    self
-  }
-}
-
-#[derive(Debug, PartialEq)]
-struct UncountedSequence {
-  values: Vec<u8>,
-}
-
-impl Meta for UncountedSequence {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Sequence
-  }
-
-  fn into_any(self: Box<Self>) -> Box<dyn Any> {
-    self
-  }
-
-  fn as_any(&self) -> &dyn Any {
-    self
-  }
-}
-
-impl MetaMut for UncountedSequence {
-  set_body!();
-
-  fn push_item(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-    if !value.is::<u8>() {
-      return Err(value);
-    }
-
-    self.values.push(value.to::<u8>().unwrap());
-    Ok(ObjectRefMut::new(self.values.last_mut().unwrap()))
-  }
-
-  fn remove_item(&mut self, index: usize) -> Option<Object> {
-    (index < self.values.len()).then(|| Object::new(self.values.remove(index)))
   }
 
   fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -123,28 +87,6 @@ fn mutation_batch_push_and_extend_stage_operations_in_order() {
 
   rollback.undo(&mut values).unwrap();
   assert_eq!(values, vec![1]);
-}
-
-#[test]
-fn mutation_batch_rejects_push_when_it_cannot_record_an_inverse_index() {
-  let mut values = UncountedSequence {
-    values: vec![10, 20],
-  };
-  let batch = MutationBatch::from([PatchOperation::push_item([], 30_u8)]);
-
-  let error = batch.commit(&mut values).unwrap_err();
-
-  assert!(matches!(
-    error,
-    CommitError::OperationFailed {
-      index: 0,
-      error: CommitOperationError::Unsupported {
-        operation: PatchOperationKind::PushItem,
-        ..
-      },
-    }
-  ));
-  assert_eq!(values.values, vec![10, 20]);
 }
 
 #[test]

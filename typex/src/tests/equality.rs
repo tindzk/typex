@@ -162,14 +162,14 @@ fn mismatched_wrapper_types_are_not_equal() {
 }
 
 /// Hand-written struct with zero exposed fields, standing in for a unit struct
-/// with `#[derive(Meta)]`. `kind()` reports `Struct` even though
-/// `field_names()` is empty, unlike a truly opaque `Scalar`.
+/// with `#[derive(Meta)]`. It reflects as a struct even though
+/// `field_names()` is empty, unlike a truly opaque scalar.
 #[derive(Debug)]
 struct EmptyRecord;
 
 impl Meta for EmptyRecord {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Struct
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Struct(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -178,6 +178,16 @@ impl Meta for EmptyRecord {
 
   fn as_any(&self) -> &dyn Any {
     self
+  }
+}
+
+impl StructAccess for EmptyRecord {
+  fn field(&self, _name: &str) -> Option<ObjectRef<'_>> {
+    None
+  }
+
+  fn field_names(&self) -> &'static [&'static str] {
+    &[]
   }
 }
 
@@ -186,9 +196,6 @@ fn struct_eq_dyn_treats_zero_exposed_fields_as_equal_not_opaque() {
   let a = EmptyRecord;
   let b = EmptyRecord;
 
-  // Before dispatching on `kind()`, an empty `field_names()` fell through to
-  // the `keys()`/`len()` probes and finally to the opaque-leaf default of
-  // `false`, so even `EmptyRecord == EmptyRecord` failed.
   assert!(&a as &dyn Meta == &b as &dyn Meta);
 }
 
@@ -197,12 +204,8 @@ fn struct_eq_dyn_treats_zero_exposed_fields_as_equal_not_opaque() {
 struct UnresolvedFieldRecord;
 
 impl Meta for UnresolvedFieldRecord {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Struct
-  }
-
-  fn field_names(&self) -> &'static [&'static str] {
-    &["value"]
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Struct(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -211,6 +214,16 @@ impl Meta for UnresolvedFieldRecord {
 
   fn as_any(&self) -> &dyn Any {
     self
+  }
+}
+
+impl StructAccess for UnresolvedFieldRecord {
+  fn field(&self, _name: &str) -> Option<ObjectRef<'_>> {
+    None
+  }
+
+  fn field_names(&self) -> &'static [&'static str] {
+    &["value"]
   }
 }
 
@@ -222,11 +235,10 @@ fn struct_eq_dyn_rejects_unresolved_fields() {
   assert!(&a as &dyn Meta != &b as &dyn Meta);
 }
 
-/// Hand-written map with a `visit_map_entries` override but no `eq_dyn` override,
-/// standing in for a `#[derive(Meta)]` map type. Exercises the default
-/// `Meta::eq_dyn` `ValueKind::Map` fallback in `traits.rs`, which
-/// `BTreeMap`/`HashMap` bypass via their own native-key `eq_dyn`. Counts
-/// `visit_map_entries` visits so tests can assert the fallback short-circuits
+/// Hand-written map without an `eq_dyn` override. Exercises the default
+/// `Meta::eq_dyn` map comparison in `traits.rs`, which `BTreeMap` and
+/// `HashMap` bypass via their own native-key `eq_dyn`. Counts
+/// `visit_entries` visits so tests can assert the comparison short-circuits
 /// before visiting the other map.
 #[derive(Debug)]
 struct EntryMap {
@@ -247,8 +259,22 @@ impl EntryMap {
 }
 
 impl Meta for EntryMap {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Map
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Map(self)
+  }
+
+  fn into_any(self: Box<Self>) -> Box<dyn Any> {
+    self
+  }
+
+  fn as_any(&self) -> &dyn Any {
+    self
+  }
+}
+
+impl MapAccess for EntryMap {
+  fn len(&self) -> usize {
+    self.entries.len()
   }
 
   fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
@@ -259,26 +285,17 @@ impl Meta for EntryMap {
       .map(|(_, value)| ObjectRef::new(value as &dyn Meta))
   }
 
-  fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
+  fn keys(&self) -> Option<Vec<String>> {
+    None
+  }
+
+  fn visit_entries(&self, visitor: &mut MapEntryVisitor<'_>) {
     for (key, value) in &self.entries {
       self.visits.set(self.visits.get() + 1);
       if !visitor(AnyRef::new(key), ObjectRef::new(value as &dyn Meta)) {
         break;
       }
     }
-    true
-  }
-
-  fn len(&self) -> Option<usize> {
-    Some(self.entries.len())
-  }
-
-  fn into_any(self: Box<Self>) -> Box<dyn Any> {
-    self
-  }
-
-  fn as_any(&self) -> &dyn Any {
-    self
   }
 }
 
@@ -331,61 +348,6 @@ fn map_entries_eq_dyn_fallback_uses_len_to_skip_other_traversal() {
 }
 
 #[derive(Debug)]
-struct KeyOnlyMap {
-  entries: Vec<(String, Number)>,
-}
-
-impl KeyOnlyMap {
-  fn new(entries: &[(&str, u16)]) -> Self {
-    KeyOnlyMap {
-      entries: entries
-        .iter()
-        .map(|&(key, value)| (key.to_owned(), Number(value)))
-        .collect(),
-    }
-  }
-}
-
-impl Meta for KeyOnlyMap {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Map
-  }
-
-  fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
-    self
-      .entries
-      .iter()
-      .find(|(entry_key, _)| entry_key == key)
-      .map(|(_, value)| ObjectRef::new(value as &dyn Meta))
-  }
-
-  fn keys(&self) -> Option<Vec<String>> {
-    Some(self.entries.iter().map(|(key, _)| key.clone()).collect())
-  }
-
-  fn len(&self) -> Option<usize> {
-    Some(self.entries.len())
-  }
-
-  fn into_any(self: Box<Self>) -> Box<dyn Any> {
-    self
-  }
-
-  fn as_any(&self) -> &dyn Any {
-    self
-  }
-}
-
-#[test]
-fn map_eq_dyn_rejects_maps_without_entry_access() {
-  let a = KeyOnlyMap::new(&[("a", 1), ("b", 2)]);
-  let b = KeyOnlyMap::new(&[("b", 2), ("a", 1)]);
-
-  assert!(&a as &dyn Meta != &b as &dyn Meta);
-  assert!(&b as &dyn Meta != &a as &dyn Meta);
-}
-
-#[derive(Debug)]
 struct StaticKeyEntryMap {
   entries: Vec<(&'static str, Number)>,
 }
@@ -402,8 +364,22 @@ impl StaticKeyEntryMap {
 }
 
 impl Meta for StaticKeyEntryMap {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Map
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Map(self)
+  }
+
+  fn into_any(self: Box<Self>) -> Box<dyn Any> {
+    self
+  }
+
+  fn as_any(&self) -> &dyn Any {
+    self
+  }
+}
+
+impl MapAccess for StaticKeyEntryMap {
+  fn len(&self) -> usize {
+    self.entries.len()
   }
 
   fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
@@ -414,25 +390,16 @@ impl Meta for StaticKeyEntryMap {
       .map(|(_, value)| ObjectRef::new(value as &dyn Meta))
   }
 
-  fn len(&self) -> Option<usize> {
-    Some(self.entries.len())
+  fn keys(&self) -> Option<Vec<String>> {
+    None
   }
 
-  fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
+  fn visit_entries(&self, visitor: &mut MapEntryVisitor<'_>) {
     for (key, value) in &self.entries {
       if !visitor(AnyRef::new(key), ObjectRef::new(value as &dyn Meta)) {
         break;
       }
     }
-    true
-  }
-
-  fn into_any(self: Box<Self>) -> Box<dyn Any> {
-    self
-  }
-
-  fn as_any(&self) -> &dyn Any {
-    self
   }
 }
 
@@ -461,21 +428,8 @@ impl NumericEntryMap {
 }
 
 impl Meta for NumericEntryMap {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Map
-  }
-
-  fn len(&self) -> Option<usize> {
-    Some(self.entries.len())
-  }
-
-  fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
-    for (key, value) in &self.entries {
-      if !visitor(AnyRef::new(key), ObjectRef::new(value as &dyn Meta)) {
-        break;
-      }
-    }
-    true
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Map(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -484,6 +438,28 @@ impl Meta for NumericEntryMap {
 
   fn as_any(&self) -> &dyn Any {
     self
+  }
+}
+
+impl MapAccess for NumericEntryMap {
+  fn len(&self) -> usize {
+    self.entries.len()
+  }
+
+  fn key(&self, _key: &str) -> Option<ObjectRef<'_>> {
+    None
+  }
+
+  fn keys(&self) -> Option<Vec<String>> {
+    None
+  }
+
+  fn visit_entries(&self, visitor: &mut MapEntryVisitor<'_>) {
+    for (key, value) in &self.entries {
+      if !visitor(AnyRef::new(key), ObjectRef::new(value as &dyn Meta)) {
+        break;
+      }
+    }
   }
 }
 

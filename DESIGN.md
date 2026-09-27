@@ -9,10 +9,10 @@ constraints unless the change explicitly revises them.
 ### Decision
 
 - `Meta` provides runtime type information, downcasting and read-only
-  structural access.
-- `MetaMut: Meta` provides structural mutation and type-checked whole-value
-  replacement through `replace`. `set` is the convenience operation that
-  discards the previous value.
+  structural access through `reflect`.
+- `MetaMut: Meta` provides structural mutation through `reflect_mut` and
+  type-checked whole-value replacement through `replace_dyn`. `set_dyn` is the
+  convenience operation that discards the previous value.
 - Reflection and mutation remain separate capabilities. Read-only reflection
   must not impose mutation or clone bounds.
 
@@ -84,11 +84,56 @@ cost more than the allocation that copying keys would require. Paths without
 key steps are `'static`. Typed key steps exist only for maps with `String` or
 `&'static str` keys, because reflective key lookup takes a `&str`.
 
-## Structural shape and equality
+## Structural shapes
 
-`Meta::kind()` returns a `ValueKind` determined by the concrete type, not by
-whether a value happens to expose any fields, keys or items. Empty structs,
-empty maps and opaque scalar values must remain distinguishable by shape.
+### Decision
+
+- `Meta::reflect` returns a `Reflect` shape: `Scalar`, `Struct`, `Sequence`,
+  `Map` or `Option`. Each structural variant carries a trait object for its
+  access trait, `StructAccess`, `SequenceAccess` or `MapAccess`.
+- `MetaMut::reflect_mut` returns a `ReflectMut` shape over
+  `StructAccessMut`, `SequenceAccessMut`, `MapAccessMut` and
+  `OptionAccessMut`, or `Opaque` when the value exposes no mutable structure.
+- `Meta` keeps only `type_info`, `reflect`, `eq_dyn`, `into_any` and `as_any`.
+  `MetaMut` keeps only `reflect_mut`, `set_dyn`, `replace_dyn`, `as_any_mut`
+  and the hidden `as_meta`.
+- Callers use inherent methods with the familiar names, such as `len`, `key`
+  and `field_mut`, on `dyn Meta`, `dyn MetaMut`, `dyn SendMeta` and the
+  `Object*` wrappers. These methods dispatch on the shape.
+
+### Rationale
+
+Method resolution tries each auto-dereferencing step in order and stops at the
+first step with a match. A `Meta` implementation for a type that dereferences
+further, such as `&'static str`, `Box`, `Rc` or `Arc`, matches before the inner
+type's inherent method. Users import `Meta` and `MetaMut` for their derives, so
+trait methods named `len`, `is_empty`, `keys` or `replace` would make
+`part.is_empty()` on a `&&str` return `Option<bool>` and
+`boxed_text.replace('a', "b")` fail to compile. The access traits carry those
+names instead, and callers never need to import them. Inherent methods on trait
+objects and wrappers apply only to those receiver types, so they cannot shadow
+methods of concrete types.
+
+The remaining trait methods keep a `self` receiver so that `Meta` and `MetaMut`
+stay dyn-compatible. `set_dyn` and `replace_dyn` stay on `MetaMut` because
+whole-value replacement needs a per-type implementation for every shape.
+
+Deriving the kind from the shape also means that a value cannot report a map
+without providing map access, or a sequence without a length.
+
+### Consequences
+
+- `Reflect::kind` determines `ValueKind`. The variant depends on the concrete
+  type, not on whether a value happens to expose any fields, keys or items.
+  Empty structs, empty maps and opaque scalar values remain distinguishable.
+- `AccessKind` follows from the shape: `Field` for structs with field names,
+  `Item` for sequences and `MapAccess::access_kind` for maps. Options report
+  the access of their contained value.
+- Hand-written implementations implement one access trait per structural
+  shape in addition to `Meta` or `MetaMut`. A module that imports an access
+  trait to implement it sees that trait's methods on concrete types.
+
+## Structural equality
 
 Enum and result field names may depend on the active variant. Structural
 equality therefore compares the exposed name lists before recursing. A derived
@@ -99,11 +144,10 @@ recursing into the same value.
 Built-in `BTreeMap` and `HashMap` implementations compare their native keys
 and values directly. The generic structural map access remains string-keyed
 for reflective lookup, but equality must also work for maps whose key type is
-not string-like. `Meta::len` reports the number of exposed structural items,
-including keyed entries for maps. Map implementations must provide that count,
-and `Meta::visit_map_entries` is the canonical entry stream for generic equality.
-Generic equality supports string-like keys through that stream and `Meta::key`;
-maps with other key types must override `Meta::eq_dyn`.
+not string-like. `MapAccess::visit_entries` is the canonical entry stream for
+generic equality. Generic equality supports string-like keys through that
+stream and `MapAccess::key`; maps with other key types must override
+`Meta::eq_dyn`.
 
 ## Type-erased references
 
@@ -137,23 +181,22 @@ trait default is unreachable there. An unrelated trait avoids that ambiguity.
 ### `MetaMut` implementations
 
 `MetaMut` is not blanket-implemented for every `T: Meta`. It needs a genuine
-`as_any_mut`, and its navigation methods differ between indexed, keyed and
-named shapes. Every type with a `Meta` implementation in this crate also has
+`as_any_mut`, and its mutable shape differs between indexed, keyed and named
+values. Every type with a `Meta` implementation in this crate also has
 a `MetaMut` implementation, so fields in derived structural types remain
 usable without extra bounds.
 
 Some shapes cannot safely expose a structural mutable reference. For example,
-`BTreeSet` and `BinaryHeap` use their elements as ordering keys. Their
-`field_mut`, `item_mut` and `key_mut` methods therefore return `None`, while
-`to_mut::<T>()` still exposes the whole collection for mutation through its
-own API.
+`BTreeSet` and `BinaryHeap` use their elements as ordering keys. Their mutable
+shape is therefore `ReflectMut::Opaque`, while `to_mut::<T>()` still exposes the
+whole collection for mutation through its own API.
 
-`Rc` and `Arc` forward mutable access through `get_mut`. They return `None`
-when the value is not uniquely owned, as well as when the requested structure
-does not exist.
+`Box` forwards both shapes to its contents. `Rc` and `Arc` forward the mutable
+shape through `get_mut` and report `ReflectMut::Opaque` when the value is not
+uniquely owned.
 
-`move_item` defaults to `MoveItemError::Unsupported`, while sequential
-implementations provide a native move operation.
+`SequenceAccessMut::move_item` defaults to `MoveItemError::Unsupported`, while
+sequential implementations provide a native move operation.
 
 `key_mut` and `item_mut` traverse existing structure only. `insert_key`,
 `insert_item` and `push_item` grow a structure by accepting an already-built
@@ -164,16 +207,15 @@ returns the original `Object` unchanged.
 
 ### Whole-value replacement
 
-`MetaMut::replace` checks the concrete type, downcasts and swaps the value,
+`MetaMut::replace_dyn` checks the concrete type, downcasts and swaps the value,
 returning the previous value as an `Object`. `MutationBatch` uses it to record
-rollback state. `MetaMut::set` overwrites the value and drops the previous one
-in place, so it avoids boxing a value the caller discards. Patch application
-and `ObjectRefMut::set` use `set`.
+rollback state. `MetaMut::set_dyn` overwrites the value and drops the previous
+one in place, so it avoids boxing a value the caller discards. Patch
+application and `ObjectRefMut::set` use `set_dyn`.
 
 Overwriting `*self` requires `Self: Sized`, so a generic default body cannot
-serve trait-object callers. Each implementation provides `replace`. The
-default `set` calls `replace` and discards the result, while `set_body!` and
-the derive generate an in-place `set`.
+serve trait-object callers. Each implementation provides both methods, which
+`set_body!` and the derive generate.
 
 ## Owned wrappers
 
@@ -201,12 +243,14 @@ records because they are not reflective operations that can be inverted.
 
 ## Trait objects and MSRV
 
-`MetaMut` declares a hidden `as_meta(&self) -> &dyn Meta` bridge. Upcasting
-`&dyn MetaMut` to `&dyn Meta` only stabilised in Rust 1.86, while this crate's
-MSRV is Rust 1.85. The bridge avoids raising the MSRV and is generated by
-`set_body!` and the derives.
+`MetaMut` and `SendMeta` declare a hidden `as_meta(&self) -> &dyn Meta`
+bridge. Upcasting `&dyn MetaMut` or `&dyn SendMeta` to `&dyn Meta` only
+stabilised in Rust 1.86, while this crate's MSRV is Rust 1.85. The bridge
+avoids raising the MSRV. `set_body!` and the derives generate it for
+`MetaMut`, and the blanket implementation provides it for `SendMeta`. The read
+methods on `dyn MetaMut` and `dyn SendMeta` forward through it.
 
-Remove the bridge when the MSRV has moved beyond Rust 1.86 and the relevant
+Remove the bridges when the MSRV has moved beyond Rust 1.86 and the relevant
 trait-object coercions are available.
 
 ## Derive implementation constraints

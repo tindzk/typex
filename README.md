@@ -36,6 +36,7 @@ out of scope.
 - [Reflective patching](#reflective-patching)
 - [Staged mutation batches](#staged-mutation-batches)
 - [Thread-safe objects](#thread-safe-objects)
+- [Hand-written implementations](#hand-written-implementations)
 - [Workspace structure](#workspace-structure)
 - [Licence](#licence)
 
@@ -53,7 +54,7 @@ out of scope.
 - No runtime dependencies
 - No `unsafe` code
 - Small implementation: ~4k lines of Rust code
-<!-- check: tokei=typex/src,typex_derive/src exclude=tests min=3500 max=4200 -->
+<!-- check: tokei=typex/src,typex_derive/src exclude=tests min=3500 max=4300 -->
 
 ## Installation
 
@@ -194,9 +195,9 @@ concrete key type. `visit_map_entries()` visits arbitrary keys through a
 `MapEntryVisitor` callback without converting them to strings.
 
 `len()` reports the number of exposed structural items, including keyed entries
-for maps. Map implementations must provide that count and expose their entries
-through `visit_map_entries()` for structural equality. Maps with non-string
-keys must override `Meta::eq_dyn`.
+for maps. Hand-written maps implement `MapAccess`, which provides that count,
+string-key lookup and the entry stream used for structural equality. Maps with
+non-string keys must override `Meta::eq_dyn`.
 
 <!-- check: name=map-access -->
 ```rust
@@ -218,8 +219,7 @@ assert_eq!(mutable_numbers.get(&7), Some(&12));
 
 let object = Object::new(numbers);
 let mut seen = Vec::new();
-assert!(Meta::visit_map_entries(
-  object.as_ref(),
+assert!(object.visit_map_entries(
   &mut |key: AnyRef<'_>, value: ObjectRef<'_>| {
     seen.push((*key.to_ref::<u32>().unwrap(), *value.to_ref::<u8>().unwrap()));
     true
@@ -306,12 +306,14 @@ as `#[typex(partial_eq)]` does:
 
 <!-- check: name=manual-equality -->
 ```rust
+use typex::Reflect;
+
 #[derive(Debug, PartialEq)]
 struct ManualId(u64);
 
 impl Meta for ManualId {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Scalar
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Scalar
   }
 
   fn eq_dyn(&self, other: &dyn Meta) -> bool {
@@ -335,8 +337,8 @@ let b = ManualId(7);
 assert!(a.eq_dyn(&b));
 ```
 
-Equality dispatches on `Meta::kind()`, so a struct or map with zero exposed
-fields compares equal to itself:
+Equality dispatches on the shape from `Meta::reflect()`, so a struct or map with
+zero exposed fields compares equal to itself:
 
 <!-- check: name=empty-struct-equality -->
 ```rust
@@ -565,7 +567,7 @@ the underlying value to implement `Debug`.
 ## Mutation
 
 `ObjectRefMut::set` replaces the whole value with an owned `Object` when
-the concrete types match. This also works for opaque values. `MetaMut` then
+the concrete types match. This also works for opaque values. `ObjectRefMut` also
 provides structural mutation through fields, items and keys:
 
 <!-- check: name=mutation extends=paths -->
@@ -580,7 +582,11 @@ ObjectRefMut::new(&mut id)
   .unwrap();
 assert_eq!(id.0, 8);
 
-*payload.field_mut("count").unwrap().to_mut::<u8>().unwrap() = 4;
+*ObjectRefMut::new(&mut payload)
+  .field_mut("count")
+  .unwrap()
+  .to_mut::<u8>()
+  .unwrap() = 4;
 assert_eq!(payload.count, 4);
 ```
 
@@ -711,8 +717,8 @@ order, stops at the first failure and leaves earlier successful operations
 applied. Use a `MutationBatch` when earlier changes must be undone after a
 later operation fails.
 
-`MetaMut::move_item` defaults to `MoveItemError::Unsupported`. Sequential types
-override it with a native move operation.
+`SequenceAccessMut::move_item` defaults to `MoveItemError::Unsupported`.
+Sequential access implementations override it with a native move operation.
 
 ## Staged mutation batches
 
@@ -800,7 +806,7 @@ assert_eq!(settings.profiles[0].name, "primary");
 Structural operations affect the paths and indexes used by later operations.
 Rollback replays an inverse for each operation instead of restoring a
 whole-value snapshot, and staged values become visible only after `commit`.
-Custom `MetaMut` implementations must implement `MetaMut::replace` correctly
+Custom `MetaMut` implementations must implement `MetaMut::replace_dyn` correctly
 when whole-value inverse operations are required.
 
 A custom `MetaMut` implementation can also make a commit fail in a way that
@@ -827,6 +833,66 @@ std::thread::spawn(move || {
 })
 .join()
 .unwrap();
+```
+
+## Hand-written implementations
+
+`Meta::reflect()` returns the value's structural shape as a `Reflect`. Each
+structural shape has an access trait: `StructAccess`, `SequenceAccess` or
+`MapAccess`. `MetaMut::reflect_mut()` does the same for mutation through
+`StructAccessMut`, `SequenceAccessMut`, `MapAccessMut` and `OptionAccessMut`.
+The shape determines `kind()` and `access_kind()`, so a value cannot report a
+shape without providing its access.
+
+Callers do not import the access traits. `Object`, `ObjectRef`, `ObjectRefMut`
+and the trait objects dispatch to them. Importing `Meta` or `MetaMut` for the
+derives therefore brings only `type_info`, `reflect`, `reflect_mut`, `eq_dyn`,
+`set_dyn`, `replace_dyn` and the `Any` conversions into scope, and a call such
+as `part.len()` on a `&&str` still reaches `str::len`.
+
+<!-- check: name=manual-sequence -->
+```rust
+use typex::{ObjectRef, Reflect, SequenceAccess};
+
+struct Ring {
+  values: Vec<u8>,
+  start: usize,
+}
+
+impl Meta for Ring {
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Sequence(self)
+  }
+
+  fn into_any(self: Box<Self>) -> Box<dyn core::any::Any> {
+    self
+  }
+
+  fn as_any(&self) -> &dyn core::any::Any {
+    self
+  }
+}
+
+impl SequenceAccess for Ring {
+  fn len(&self) -> usize {
+    self.values.len()
+  }
+
+  fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
+    let len = self.values.len();
+    (index < len).then(|| ObjectRef::new(&self.values[(self.start + index) % len] as &dyn Meta))
+  }
+}
+
+let ring = Ring {
+  values: vec![1, 2, 3],
+  start: 1,
+};
+let view = ObjectRef::new(&ring);
+
+assert_eq!(view.kind(), ValueKind::Sequence);
+assert_eq!(view.len(), Some(3));
+assert_eq!(view.item(0).unwrap().to_ref::<u8>(), Some(&2));
 ```
 
 ## Workspace structure

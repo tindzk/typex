@@ -1,6 +1,7 @@
 use crate::{
-  AccessKind, AnyRef, MapEntryVisitor, Meta, MetaMut, Object, ObjectRef, ObjectRefMut,
-  TypedMapAccess, TypedMapAccessMut, ValueKind, as_map_key, btree_map_get, btree_map_get_mut,
+  AnyRef, MapAccess, MapAccessMut, MapEntryVisitor, Meta, MetaMut, Object, ObjectRef, ObjectRefMut,
+  OptionAccessMut, Reflect, ReflectMut, SequenceAccess, SequenceAccessMut, StructAccess,
+  StructAccessMut, TypedMapAccess, TypedMapAccessMut, as_map_key, btree_map_get, btree_map_get_mut,
 };
 #[cfg(feature = "std")]
 use crate::{hash_map_get, hash_map_get_mut};
@@ -21,8 +22,8 @@ macro_rules! impl_meta {
   ($($ty:ty),* $(,)?) => {
     $(
       impl Meta for $ty {
-        fn kind(&self) -> ValueKind {
-          ValueKind::Scalar
+        fn reflect(&self) -> Reflect<'_> {
+          Reflect::Scalar
         }
 
         fn eq_dyn(&self, other: &dyn Meta) -> bool {
@@ -40,6 +41,10 @@ macro_rules! impl_meta {
 
       impl MetaMut for $ty {
         set_body!();
+
+        fn reflect_mut(&mut self) -> ReflectMut<'_> {
+          ReflectMut::Opaque
+        }
 
         fn as_any_mut(&mut self) -> &mut dyn Any {
           self
@@ -85,51 +90,15 @@ macro_rules! impl_meta_forward {
     where
       T: Meta + 'static,
     {
-      fn access_kind(&self) -> Option<AccessKind> {
-        self.as_ref().access_kind()
-      }
-
-      fn option_value(&self) -> Option<ObjectRef<'_>> {
-        self.as_ref().option_value()
-      }
-
-      fn kind(&self) -> ValueKind {
-        self.as_ref().kind()
-      }
-
-      fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
-        self.as_ref().field(name)
-      }
-
-      fn field_names(&self) -> &'static [&'static str] {
-        self.as_ref().field_names()
-      }
-
-      fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-        self.as_ref().item(index)
-      }
-
-      fn len(&self) -> Option<usize> {
-        self.as_ref().len()
-      }
-
-      fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
-        self.as_ref().key(key)
-      }
-
-      fn keys(&self) -> Option<Vec<String>> {
-        self.as_ref().keys()
-      }
-
-      fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
-        self.as_ref().visit_map_entries(visitor)
+      fn reflect(&self) -> Reflect<'_> {
+        (**self).reflect()
       }
 
       fn eq_dyn(&self, other: &dyn Meta) -> bool {
         other
           .as_any()
           .downcast_ref::<Self>()
-          .is_some_and(|other| self.as_ref().eq_dyn(other.as_ref() as &dyn Meta))
+          .is_some_and(|other| (**self).eq_dyn(&**other as &dyn Meta))
       }
 
       fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -151,36 +120,8 @@ macro_rules! impl_meta_mut_forward {
     {
       set_body!();
 
-      fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
-        self.as_mut().field_mut(name)
-      }
-
-      fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
-        self.as_mut().item_mut(index)
-      }
-
-      fn key_mut(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
-        self.as_mut().key_mut(key)
-      }
-
-      fn insert_key(&mut self, key: &str, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-        self.as_mut().insert_key(key, value)
-      }
-
-      fn insert_item(&mut self, index: usize, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-        self.as_mut().insert_item(index, value)
-      }
-
-      fn remove_key(&mut self, key: &str) -> Option<Object> {
-        self.as_mut().remove_key(key)
-      }
-
-      fn remove_item(&mut self, index: usize) -> Option<Object> {
-        self.as_mut().remove_item(index)
-      }
-
-      fn move_item(&mut self, from: usize, to: usize) -> Result<(), crate::MoveItemError> {
-        self.as_mut().move_item(from, to)
+      fn reflect_mut(&mut self) -> ReflectMut<'_> {
+        (**self).reflect_mut()
       }
 
       fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -195,45 +136,12 @@ macro_rules! impl_meta_mut_forward {
     {
       set_body!();
 
-      fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
-        $wrapper::get_mut(self)?.field_mut(name)
-      }
-
-      fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
-        $wrapper::get_mut(self)?.item_mut(index)
-      }
-
-      fn key_mut(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
-        $wrapper::get_mut(self)?.key_mut(key)
-      }
-
-      fn insert_key(&mut self, key: &str, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-        let Some(inner) = $wrapper::get_mut(self) else {
-          return Err(value);
-        };
-        inner.insert_key(key, value)
-      }
-
-      fn insert_item(&mut self, index: usize, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-        let Some(inner) = $wrapper::get_mut(self) else {
-          return Err(value);
-        };
-        inner.insert_item(index, value)
-      }
-
-      fn remove_key(&mut self, key: &str) -> Option<Object> {
-        $wrapper::get_mut(self)?.remove_key(key)
-      }
-
-      fn remove_item(&mut self, index: usize) -> Option<Object> {
-        $wrapper::get_mut(self)?.remove_item(index)
-      }
-
-      fn move_item(&mut self, from: usize, to: usize) -> Result<(), crate::MoveItemError> {
-        let Some(inner) = $wrapper::get_mut(self) else {
-          return Err(crate::MoveItemError::Unsupported);
-        };
-        inner.move_item(from, to)
+      // A shared value exposes no mutable structure.
+      fn reflect_mut(&mut self) -> ReflectMut<'_> {
+        match $wrapper::get_mut(self) {
+          Some(inner) => inner.reflect_mut(),
+          None => ReflectMut::Opaque,
+        }
       }
 
       fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -344,32 +252,18 @@ macro_rules! impl_seq_meta {
     item = get,
     len = method $(,)?
   ) => {
-    impl<$($generics)*> Meta for $ty
+    impl_seq_meta!(@meta $ty, [$($generics)*], [$($bounds)*]);
+
+    impl<$($generics)*> SequenceAccess for $ty
     where
       $($bounds)*
     {
-      fn kind(&self) -> ValueKind {
-        ValueKind::Sequence
-      }
-
-      fn access_kind(&self) -> Option<AccessKind> {
-        Some(AccessKind::Item)
+      fn len(&self) -> usize {
+        self.len()
       }
 
       fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
         self.get(index).map(|value| ObjectRef::new(value as &dyn Meta))
-      }
-
-      fn len(&self) -> Option<usize> {
-        Some(self.len())
-      }
-
-      fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-      }
-
-      fn as_any(&self) -> &dyn Any {
-        self
       }
     }
   };
@@ -380,32 +274,18 @@ macro_rules! impl_seq_meta {
     item = get,
     len = const $len:ident $(,)?
   ) => {
-    impl<$($generics)*> Meta for $ty
+    impl_seq_meta!(@meta $ty, [$($generics)*], [$($bounds)*]);
+
+    impl<$($generics)*> SequenceAccess for $ty
     where
       $($bounds)*
     {
-      fn kind(&self) -> ValueKind {
-        ValueKind::Sequence
-      }
-
-      fn access_kind(&self) -> Option<AccessKind> {
-        Some(AccessKind::Item)
+      fn len(&self) -> usize {
+        $len
       }
 
       fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
         self.get(index).map(|value| ObjectRef::new(value as &dyn Meta))
-      }
-
-      fn len(&self) -> Option<usize> {
-        Some($len)
-      }
-
-      fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-      }
-
-      fn as_any(&self) -> &dyn Any {
-        self
       }
     }
   };
@@ -421,20 +301,8 @@ macro_rules! impl_seq_meta {
     where
       $($bounds)*
     {
-      fn kind(&self) -> ValueKind {
-        ValueKind::Sequence
-      }
-
-      fn access_kind(&self) -> Option<AccessKind> {
-        Some(AccessKind::Item)
-      }
-
-      fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-        self.iter().nth(index).map(|value| ObjectRef::new(value as &dyn Meta))
-      }
-
-      fn len(&self) -> Option<usize> {
-        Some(self.len())
+      fn reflect(&self) -> Reflect<'_> {
+        Reflect::Sequence(self)
       }
 
       fn eq_dyn(&self, other: &dyn Meta) -> bool {
@@ -449,6 +317,57 @@ macro_rules! impl_seq_meta {
       }
 
       fn as_any(&self) -> &dyn Any {
+        self
+      }
+    }
+
+    impl<$($generics)*> SequenceAccess for $ty
+    where
+      $($bounds)*
+    {
+      fn len(&self) -> usize {
+        self.len()
+      }
+
+      fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
+        self.iter().nth(index).map(|value| ObjectRef::new(value as &dyn Meta))
+      }
+    }
+  };
+  (@meta $ty:ty, [$($generics:tt)*], [$($bounds:tt)*]) => {
+    impl<$($generics)*> Meta for $ty
+    where
+      $($bounds)*
+    {
+      fn reflect(&self) -> Reflect<'_> {
+        Reflect::Sequence(self)
+      }
+
+      fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+      }
+
+      fn as_any(&self) -> &dyn Any {
+        self
+      }
+    }
+  };
+}
+
+// Implements `MetaMut` for a sequence whose mutable shape is `Self`.
+macro_rules! impl_seq_meta_mut {
+  (type = $ty:ty, generics = [$($generics:tt)*], bounds = [$($bounds:tt)*] $(,)?) => {
+    impl<$($generics)*> MetaMut for $ty
+    where
+      $($bounds)*
+    {
+      set_body!();
+
+      fn reflect_mut(&mut self) -> ReflectMut<'_> {
+        ReflectMut::Sequence(self)
+      }
+
+      fn as_any_mut(&mut self) -> &mut dyn Any {
         self
       }
     }
@@ -467,12 +386,12 @@ macro_rules! impl_indexed_meta_mut {
     move_item = $move_item:path,
     $($extra:item)*
   ) => {
-    impl<$($generics)*> MetaMut for $ty
+    impl_seq_meta_mut!(type = $ty, generics = [$($generics)*], bounds = [$($bounds)*]);
+
+    impl<$($generics)*> SequenceAccessMut for $ty
     where
       $($bounds)*
     {
-      set_body!();
-
       fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
         self
           .$access_mut(index)
@@ -505,35 +424,6 @@ macro_rules! impl_indexed_meta_mut {
 
       fn move_item(&mut self, from: usize, to: usize) -> Result<(), crate::MoveItemError> {
         $move_item(self, from, to)
-      }
-
-      fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-      }
-    }
-  };
-}
-
-macro_rules! impl_item_meta_mut {
-  (
-    type = $ty:ty,
-    generics = [$($generics:tt)*],
-    bounds = [$($bounds:tt)*] $(,)?
-  ) => {
-    impl<$($generics)*> MetaMut for $ty
-    where
-      $($bounds)*
-    {
-      set_body!();
-
-      fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
-        self
-          .get_mut(index)
-          .map(|value| ObjectRefMut::new(value as &mut dyn MetaMut))
-      }
-
-      fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
       }
     }
   };
@@ -568,11 +458,22 @@ impl_seq_meta!(
   item = get,
   len = const N,
 );
-impl_item_meta_mut!(
+impl_seq_meta_mut!(
   type = [T; N],
   generics = [T, const N: usize],
   bounds = [T: MetaMut + 'static],
 );
+
+impl<T, const N: usize> SequenceAccessMut for [T; N]
+where
+  T: MetaMut + 'static,
+{
+  fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
+    self
+      .get_mut(index)
+      .map(|value| ObjectRefMut::new(value as &mut dyn MetaMut))
+  }
+}
 
 impl_seq_meta!(
   type = VecDeque<T>,
@@ -603,12 +504,16 @@ impl_seq_meta!(
   len = method,
   eq = ordered_eq,
 );
-impl<T> MetaMut for LinkedList<T>
+impl_seq_meta_mut!(
+  type = LinkedList<T>,
+  generics = [T],
+  bounds = [T: MetaMut + 'static],
+);
+
+impl<T> SequenceAccessMut for LinkedList<T>
 where
   T: MetaMut + 'static,
 {
-  set_body!();
-
   fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
     self
       .iter_mut()
@@ -652,10 +557,6 @@ where
   fn move_item(&mut self, from: usize, to: usize) -> Result<(), crate::MoveItemError> {
     move_linked_list_item(self, from, to)
   }
-
-  fn as_any_mut(&mut self) -> &mut dyn Any {
-    self
-  }
 }
 
 impl_seq_meta!(
@@ -668,14 +569,18 @@ impl_seq_meta!(
 );
 
 /// Mutating a `BTreeSet` element in place could break its sort order, and
-/// `push_item` has no index or key to target since position is decided by
-/// ordering. So none of `field_mut`, `item_mut`, `key_mut`, `push_item` are
-/// overridden here; use `to_mut::<BTreeSet<T>>()` for `insert`/`remove`.
+/// appending has no index or key to target since position is decided by
+/// ordering. The set therefore exposes no mutable structure; use
+/// `to_mut::<BTreeSet<T>>()` for `insert`/`remove`.
 impl<T> MetaMut for BTreeSet<T>
 where
   T: Meta + Ord + 'static,
 {
   set_body!();
+
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Opaque
+  }
 
   fn as_any_mut(&mut self) -> &mut dyn Any {
     self
@@ -692,14 +597,18 @@ impl_seq_meta!(
 );
 
 /// `BinaryHeap` only allows mutable access to its max element, via
-/// `peek_mut`, and `push` sifts the new value to an arbitrary position.
-/// So none of `field_mut`, `item_mut`, `key_mut`, `push_item` are overridden
-/// here; use `to_mut::<BinaryHeap<T>>()` for the heap's own API.
+/// `peek_mut`, and `push` sifts the new value to an arbitrary position. The
+/// heap therefore exposes no mutable structure; use
+/// `to_mut::<BinaryHeap<T>>()` for the heap's own API.
 impl<T> MetaMut for BinaryHeap<T>
 where
   T: Meta + Ord + 'static,
 {
   set_body!();
+
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Opaque
+  }
 
   fn as_any_mut(&mut self) -> &mut dyn Any {
     self
@@ -710,52 +619,12 @@ impl<T> Meta for Option<T>
 where
   T: Meta + 'static,
 {
-  fn access_kind(&self) -> Option<AccessKind> {
-    self.as_ref()?.access_kind()
-  }
-
-  fn option_value(&self) -> Option<ObjectRef<'_>> {
-    self
-      .as_ref()
-      .map(|value| ObjectRef::new(value as &dyn Meta))
-  }
-
-  fn kind(&self) -> ValueKind {
-    ValueKind::Option
-  }
-
-  fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
-    self.as_ref()?.field(name)
-  }
-
-  fn field_names(&self) -> &'static [&'static str] {
-    self.as_ref().map_or(&[], Meta::field_names)
-  }
-
-  fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-    match (index, self.as_ref()) {
-      (0, Some(value)) => Some(ObjectRef::new(value as &dyn Meta)),
-      _ => None,
-    }
-  }
-
-  fn len(&self) -> Option<usize> {
-    Some(usize::from(self.is_some()))
-  }
-
-  fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
-    self.as_ref()?.key(key)
-  }
-
-  fn keys(&self) -> Option<Vec<String>> {
-    self.as_ref()?.keys()
-  }
-
-  fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
-    match self.as_ref() {
-      Some(value) => value.visit_map_entries(visitor),
-      None => false,
-    }
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Option(
+      self
+        .as_ref()
+        .map(|value| ObjectRef::new(value as &dyn Meta)),
+    )
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -773,51 +642,36 @@ where
 {
   set_body!();
 
-  fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
-    self.as_mut()?.field_mut(name)
-  }
-
-  fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
-    match (index, self.as_mut()) {
-      (0, Some(value)) => Some(ObjectRefMut::new(value as &mut dyn MetaMut)),
-      _ => None,
-    }
-  }
-
-  fn key_mut(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
-    self.as_mut()?.key_mut(key)
-  }
-
-  fn insert_key(&mut self, key: &str, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-    let Some(inner) = self.as_mut() else {
-      return Err(value);
-    };
-    inner.insert_key(key, value)
-  }
-
-  fn insert_item(&mut self, index: usize, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-    if index != 0 || self.is_some() || !value.is::<T>() {
-      return Err(value);
-    }
-
-    let value = *value.into_inner().into_any().downcast::<T>().unwrap();
-    *self = Some(value);
-
-    Ok(ObjectRefMut::new(
-      self.as_mut().expect("just inserted") as &mut dyn MetaMut
-    ))
-  }
-
-  fn remove_key(&mut self, key: &str) -> Option<Object> {
-    self.as_mut()?.remove_key(key)
-  }
-
-  fn remove_item(&mut self, index: usize) -> Option<Object> {
-    (index == 0).then(|| self.take().map(Object::new)).flatten()
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Option(self)
   }
 
   fn as_any_mut(&mut self) -> &mut dyn Any {
     self
+  }
+}
+
+impl<T> OptionAccessMut for Option<T>
+where
+  T: MetaMut + 'static,
+{
+  fn value_mut(&mut self) -> Option<ObjectRefMut<'_>> {
+    self
+      .as_mut()
+      .map(|value| ObjectRefMut::new(value as &mut dyn MetaMut))
+  }
+
+  fn insert_value(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+    if self.is_some() {
+      return Err(value);
+    }
+
+    let value = into_typed(value)?;
+    Ok(ObjectRefMut::new(self.insert(value) as &mut dyn MetaMut))
+  }
+
+  fn take_value(&mut self) -> Option<Object> {
+    self.take().map(Object::new)
   }
 }
 
@@ -826,14 +680,24 @@ where
   T: Meta + 'static,
   E: Meta + 'static,
 {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Struct
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Struct(self)
   }
 
-  fn access_kind(&self) -> Option<AccessKind> {
-    Some(AccessKind::Field)
+  fn into_any(self: Box<Self>) -> Box<dyn Any> {
+    self
   }
 
+  fn as_any(&self) -> &dyn Any {
+    self
+  }
+}
+
+impl<T, E> StructAccess for Result<T, E>
+where
+  T: Meta + 'static,
+  E: Meta + 'static,
+{
   fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
     match (self, name) {
       (Ok(value), "Ok") => Some(ObjectRef::new(value as &dyn Meta)),
@@ -860,14 +724,6 @@ where
   fn len(&self) -> Option<usize> {
     Some(1)
   }
-
-  fn into_any(self: Box<Self>) -> Box<dyn Any> {
-    self
-  }
-
-  fn as_any(&self) -> &dyn Any {
-    self
-  }
 }
 
 impl<T, E> MetaMut for Result<T, E>
@@ -877,6 +733,20 @@ where
 {
   set_body!();
 
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Struct(self)
+  }
+
+  fn as_any_mut(&mut self) -> &mut dyn Any {
+    self
+  }
+}
+
+impl<T, E> StructAccessMut for Result<T, E>
+where
+  T: MetaMut + 'static,
+  E: MetaMut + 'static,
+{
   fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
     match (self, name) {
       (Ok(value), "Ok") => Some(ObjectRefMut::new(value as &mut dyn MetaMut)),
@@ -892,10 +762,6 @@ where
       _ => None,
     }
   }
-
-  fn as_any_mut(&mut self) -> &mut dyn Any {
-    self
-  }
 }
 
 macro_rules! impl_tuple_meta {
@@ -905,14 +771,23 @@ macro_rules! impl_tuple_meta {
       where
         $($ty: Meta + 'static,)+
       {
-        fn kind(&self) -> ValueKind {
-          ValueKind::Struct
+        fn reflect(&self) -> Reflect<'_> {
+          Reflect::Struct(self)
         }
 
-        fn access_kind(&self) -> Option<AccessKind> {
-          Some(AccessKind::Field)
+        fn into_any(self: Box<Self>) -> Box<dyn Any> {
+          self
         }
 
+        fn as_any(&self) -> &dyn Any {
+          self
+        }
+      }
+
+      impl<$($ty),+> StructAccess for ($($ty,)+)
+      where
+        $($ty: Meta + 'static,)+
+      {
         fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
           match name {
             $($name => Some(ObjectRef::new(&self.$idx as &dyn Meta)),)+
@@ -934,14 +809,6 @@ macro_rules! impl_tuple_meta {
         fn len(&self) -> Option<usize> {
           Some(<[_]>::len(&[$($idx),+]))
         }
-
-        fn into_any(self: Box<Self>) -> Box<dyn Any> {
-          self
-        }
-
-        fn as_any(&self) -> &dyn Any {
-          self
-        }
       }
 
       impl<$($ty),+> MetaMut for ($($ty,)+)
@@ -950,6 +817,19 @@ macro_rules! impl_tuple_meta {
       {
         set_body!();
 
+        fn reflect_mut(&mut self) -> ReflectMut<'_> {
+          ReflectMut::Struct(self)
+        }
+
+        fn as_any_mut(&mut self) -> &mut dyn Any {
+          self
+        }
+      }
+
+      impl<$($ty),+> StructAccessMut for ($($ty,)+)
+      where
+        $($ty: MetaMut + 'static,)+
+      {
         fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
           match name {
             $($name => Some(ObjectRefMut::new(&mut self.$idx as &mut dyn MetaMut)),)+
@@ -963,12 +843,7 @@ macro_rules! impl_tuple_meta {
             _ => None,
           }
         }
-
-        fn as_any_mut(&mut self) -> &mut dyn Any {
-          self
-        }
       }
-
     )*
   };
 }
@@ -996,16 +871,29 @@ macro_rules! impl_map_meta {
     where
       $($bounds)*
     {
-      fn kind(&self) -> ValueKind {
-        ValueKind::Map
+      fn reflect(&self) -> Reflect<'_> {
+        Reflect::Map(self)
       }
 
-      fn access_kind(&self) -> Option<AccessKind> {
-        Some(AccessKind::Key)
+      fn eq_dyn(&self, other: &dyn Meta) -> bool {
+        $eq(self, other)
       }
 
-      fn len(&self) -> Option<usize> {
-        Some(self.len())
+      fn into_any(self: Box<Self>) -> Box<dyn Any> {
+        self
+      }
+
+      fn as_any(&self) -> &dyn Any {
+        self
+      }
+    }
+
+    impl<$($generics)*> MapAccess for $ty
+    where
+      $($bounds)*
+    {
+      fn len(&self) -> usize {
+        self.len()
       }
 
       fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
@@ -1016,26 +904,12 @@ macro_rules! impl_map_meta {
         self.keys().map(as_map_key).collect()
       }
 
-      fn eq_dyn(&self, other: &dyn Meta) -> bool {
-        $eq(self, other)
-      }
-
-      fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
+      fn visit_entries(&self, visitor: &mut MapEntryVisitor<'_>) {
         for (key, value) in self {
           if !visitor(AnyRef::new(key), ObjectRef::new(value as &dyn Meta)) {
             break;
           }
         }
-
-        true
-      }
-
-      fn into_any(self: Box<Self>) -> Box<dyn Any> {
-        self
-      }
-
-      fn as_any(&self) -> &dyn Any {
-        self
       }
     }
   };
@@ -1133,6 +1007,19 @@ macro_rules! impl_map_mut {
     {
       set_body!();
 
+      fn reflect_mut(&mut self) -> ReflectMut<'_> {
+        ReflectMut::Map(self)
+      }
+
+      fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+      }
+    }
+
+    impl<$($generics)*> MapAccessMut for $ty
+    where
+      $($bounds)*
+    {
       fn key_mut(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
         $lookup(self, key).map(|value| ObjectRefMut::new(value as &mut dyn MetaMut))
       }
@@ -1149,7 +1036,7 @@ macro_rules! impl_map_mut {
             .downcast_mut::<$string_map>()
             .unwrap();
           map.insert(key.to_owned(), value);
-          return Ok(MetaMut::key_mut(self, key).expect("just inserted"));
+          return Ok(MapAccessMut::key_mut(self, key).expect("just inserted"));
         }
 
         // Any other `K` can't be built from a borrowed `&str`, so there's no
@@ -1174,14 +1061,9 @@ macro_rules! impl_map_mut {
         // Any other `K` can't be matched against a borrowed `&str`.
         None
       }
-
-      fn as_any_mut(&mut self) -> &mut dyn Any {
-        self
-      }
     }
   };
 }
-
 impl_map_meta!(
   type = BTreeMap<K, V>,
   generics = [K, V],
