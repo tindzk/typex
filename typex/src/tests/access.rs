@@ -69,7 +69,7 @@ fn tuple_meta_exposes_indexed_access() {
   assert_eq!(pair.dyn_meta().len(), Some(2));
   assert_eq!(pair.dyn_meta().item(0).unwrap().to_ref::<u8>(), Some(&7));
   assert_eq!(
-    pair.dyn_meta().field("1").unwrap().to_ref::<bool>(),
+    pair.dyn_meta().field_dyn("1").unwrap().to_ref::<bool>(),
     Some(&true)
   );
 }
@@ -250,7 +250,7 @@ fn result_meta_exposes_active_variant() {
     Some(&Number(7))
   );
   assert_eq!(
-    ok.dyn_meta().field("Ok").unwrap().to_ref::<Number>(),
+    ok.dyn_meta().field_dyn("Ok").unwrap().to_ref::<Number>(),
     Some(&Number(7))
   );
 
@@ -261,7 +261,7 @@ fn result_meta_exposes_active_variant() {
     Some(&Text("boom"))
   );
   assert_eq!(
-    err.dyn_meta().field("Err").unwrap().to_ref::<Text>(),
+    err.dyn_meta().field_dyn("Err").unwrap().to_ref::<Text>(),
     Some(&Text("boom"))
   );
 }

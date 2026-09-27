@@ -104,8 +104,12 @@ key steps are `'static`. Typed key steps exist only for maps with `String` or
 - `SequenceAccessMut` extends `SequenceAccess`, so a mutable sequence shape
   also reports its length.
 - Callers use inherent methods with the familiar names, such as `len`, `key`
-  and `field_mut`, on `dyn Meta`, `dyn MetaMut`, `dyn SendMeta` and the
-  `Object*` wrappers. These methods dispatch on the shape.
+  and `keys`, on `dyn Meta`, `dyn MetaMut`, `dyn SendMeta` and the `Object*`
+  wrappers. These methods dispatch on the shape.
+- Trait objects expose each trait operation under its `_dyn` name only. The
+  unsuffixed `field`, `field_mut`, `item_mut`, `key_mut`, `set` and `replace`
+  exist only on `Object`, `ObjectMut`, `SendObject`, `ObjectRef` and
+  `ObjectRefMut`.
 
 ### Rationale
 
@@ -140,6 +144,9 @@ the matched `SequenceAccessMut` instead of calling `reflect` again.
 - `Reflect::kind` determines `ValueKind`. The variant depends on the concrete
   type, not on whether a value happens to expose any fields, keys or items.
   Empty structs, empty maps and opaque scalar values remain distinguishable.
+- `ValueKind` remains alongside `Reflect`. `Reflect` borrows the value and
+  carries trait objects, so errors such as `ApplyError::ShapeMismatch` store
+  the owned, comparable `ValueKind` instead.
 - `AccessKind` follows from the shape: `Field` for structs with field names,
   `Item` for sequences and `MapAccess::access_kind` for maps. Options report
   the access of their contained value.

@@ -109,7 +109,7 @@ fn derives_preserve_generics_and_opaque_mode() {
     .field_path_mut(GenericRecord::<u8>::FIELD_VALUE.path())
     .unwrap()
     .dyn_meta_mut()
-    .set(Object::new(4_u8))
+    .set_dyn(Object::new(4_u8))
     .unwrap();
   assert_eq!(generic.value, 4);
 
@@ -234,7 +234,7 @@ fn derive_meta_mut_does_not_require_clone_for_basic_usage() {
 
   assert_eq!(record.dyn_meta().field_names(), &["count"]);
   assert_eq!(
-    record.dyn_meta().field("count").unwrap().to_ref::<u8>(),
+    record.dyn_meta().field_dyn("count").unwrap().to_ref::<u8>(),
     Some(&4)
   );
 }
@@ -290,13 +290,17 @@ fn derive_meta_exposes_struct_fields() {
     Some(AccessKind::Field)
   );
   assert_eq!(
-    payload.dyn_meta().field("count").unwrap().to_ref::<u8>(),
+    payload
+      .dyn_meta()
+      .field_dyn("count")
+      .unwrap()
+      .to_ref::<u8>(),
     Some(&3)
   );
   assert_eq!(
     payload
       .dyn_meta()
-      .field("label")
+      .field_dyn("label")
       .unwrap()
       .to_ref::<&'static str>(),
     Some(&"ready")
@@ -304,7 +308,7 @@ fn derive_meta_exposes_struct_fields() {
   assert_eq!(
     payload
       .dyn_meta()
-      .field("boxed_label")
+      .field_dyn("boxed_label")
       .unwrap()
       .field("name")
       .unwrap()
@@ -314,7 +318,7 @@ fn derive_meta_exposes_struct_fields() {
   assert_eq!(
     payload
       .dyn_meta()
-      .field("shared_label")
+      .field_dyn("shared_label")
       .unwrap()
       .field("name")
       .unwrap()
@@ -324,20 +328,20 @@ fn derive_meta_exposes_struct_fields() {
   assert_eq!(
     payload
       .dyn_meta()
-      .field("atomic_label")
+      .field_dyn("atomic_label")
       .unwrap()
       .field("name")
       .unwrap()
       .to_ref::<&'static str>(),
     Some(&"atomic")
   );
-  let labels = payload.dyn_meta().field("labels").unwrap();
+  let labels = payload.dyn_meta().field_dyn("labels").unwrap();
   assert_eq!(labels.len(), Some(1));
   assert_eq!(labels.item(0).unwrap().field_names(), &["name"]);
   assert_eq!(
     payload
       .dyn_meta()
-      .field("queued_labels")
+      .field_dyn("queued_labels")
       .unwrap()
       .item(0)
       .unwrap()
@@ -349,7 +353,7 @@ fn derive_meta_exposes_struct_fields() {
   assert_eq!(
     payload
       .dyn_meta()
-      .field("listed_labels")
+      .field_dyn("listed_labels")
       .unwrap()
       .item(0)
       .unwrap()
@@ -361,14 +365,14 @@ fn derive_meta_exposes_struct_fields() {
   assert_eq!(
     payload
       .dyn_meta()
-      .field("set_flags")
+      .field_dyn("set_flags")
       .unwrap()
       .item(0)
       .unwrap()
       .to_ref::<u8>(),
     Some(&2)
   );
-  let heap_scores = payload.dyn_meta().field("heap_scores").unwrap();
+  let heap_scores = payload.dyn_meta().field_dyn("heap_scores").unwrap();
   assert_eq!(heap_scores.len(), Some(2));
   assert!(matches!(
     heap_scores.item(0).unwrap().to_ref::<u8>(),
@@ -377,7 +381,7 @@ fn derive_meta_exposes_struct_fields() {
   assert_eq!(
     payload
       .dyn_meta()
-      .field("optional_label")
+      .field_dyn("optional_label")
       .unwrap()
       .field("name")
       .unwrap()
@@ -385,17 +389,21 @@ fn derive_meta_exposes_struct_fields() {
     Some(&"optional")
   );
   assert_eq!(
-    payload.dyn_meta().field("optional_label").unwrap().len(),
+    payload
+      .dyn_meta()
+      .field_dyn("optional_label")
+      .unwrap()
+      .len(),
     Some(1)
   );
   assert_eq!(
-    payload.dyn_meta().field("absent_label").unwrap().len(),
+    payload.dyn_meta().field_dyn("absent_label").unwrap().len(),
     Some(0)
   );
   assert!(
     payload
       .dyn_meta()
-      .field("absent_label")
+      .field_dyn("absent_label")
       .unwrap()
       .field("name")
       .is_none()
@@ -403,7 +411,7 @@ fn derive_meta_exposes_struct_fields() {
   assert_eq!(
     payload
       .dyn_meta()
-      .field("result_label")
+      .field_dyn("result_label")
       .unwrap()
       .field("Ok")
       .unwrap()
@@ -412,11 +420,11 @@ fn derive_meta_exposes_struct_fields() {
       .to_ref::<&'static str>(),
     Some(&"result")
   );
-  assert_eq!(payload.dyn_meta().field("pair").unwrap().len(), Some(2));
+  assert_eq!(payload.dyn_meta().field_dyn("pair").unwrap().len(), Some(2));
   assert_eq!(
     payload
       .dyn_meta()
-      .field("pair")
+      .field_dyn("pair")
       .unwrap()
       .item(0)
       .unwrap()
@@ -426,7 +434,7 @@ fn derive_meta_exposes_struct_fields() {
   assert_eq!(
     payload
       .dyn_meta()
-      .field("bytes")
+      .field_dyn("bytes")
       .unwrap()
       .item(1)
       .unwrap()
@@ -434,7 +442,7 @@ fn derive_meta_exposes_struct_fields() {
     Some(&0xff)
   );
 
-  let labels_by_name = payload.dyn_meta().field("labels_by_name").unwrap();
+  let labels_by_name = payload.dyn_meta().field_dyn("labels_by_name").unwrap();
   assert_eq!(labels_by_name.keys(), Some(vec!["primary".to_string()]));
   assert_eq!(
     labels_by_name
@@ -464,7 +472,7 @@ fn derive_meta_exposes_struct_fields() {
       ])
       .is_none()
   );
-  let status = payload.dyn_meta().field("status").unwrap();
+  let status = payload.dyn_meta().field_dyn("status").unwrap();
   assert_eq!(status.field_names(), &["Struct", "count"]);
   assert_eq!(
     status
@@ -525,7 +533,7 @@ fn derive_meta_exposes_struct_fields() {
       .to_ref::<u8>(),
     Some(&5)
   );
-  assert!(payload.dyn_meta().field("missing").is_none());
+  assert!(payload.dyn_meta().field_dyn("missing").is_none());
 }
 
 #[derive(Clone, Debug, Meta, MetaMut)]
@@ -696,7 +704,7 @@ fn derive_meta_generates_typed_enum_paths() {
     .field_path_mut(Status::FIELD_STRUCT_COUNT.path())
     .unwrap()
     .dyn_meta_mut()
-    .set(Object::new(4_u8))
+    .set_dyn(Object::new(4_u8))
     .unwrap();
 
   assert_eq!(value, Status::Struct { count: 4 });
@@ -766,7 +774,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
   // Scalar field
   *payload
     .dyn_meta_mut()
-    .field_mut("count")
+    .field_mut_dyn("count")
     .unwrap()
     .to_mut::<u8>()
     .unwrap() = 30;
@@ -775,7 +783,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
   // Uniquely-owned Box/Rc/Arc fields forward field_mut to the inner value
   *payload
     .dyn_meta_mut()
-    .field_mut("boxed_label")
+    .field_mut_dyn("boxed_label")
     .unwrap()
     .field_mut("name")
     .unwrap()
@@ -785,7 +793,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
 
   *payload
     .dyn_meta_mut()
-    .field_mut("shared_label")
+    .field_mut_dyn("shared_label")
     .unwrap()
     .field_mut("name")
     .unwrap()
@@ -796,7 +804,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
   // List item mutation
   *payload
     .dyn_meta_mut()
-    .field_mut("labels")
+    .field_mut_dyn("labels")
     .unwrap()
     .item_mut(0)
     .unwrap()
@@ -811,7 +819,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
   assert!(
     payload
       .dyn_meta_mut()
-      .field_mut("set_flags")
+      .field_mut_dyn("set_flags")
       .unwrap()
       .item_mut(0)
       .ok()
@@ -819,7 +827,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
   );
   payload
     .dyn_meta_mut()
-    .field_mut("set_flags")
+    .field_mut_dyn("set_flags")
     .unwrap()
     .to_mut::<BTreeSet<u8>>()
     .unwrap()
@@ -829,7 +837,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
   // Option<T>: item_mut(0) on Some, None on absent
   *payload
     .dyn_meta_mut()
-    .field_mut("optional_label")
+    .field_mut_dyn("optional_label")
     .unwrap()
     .item_mut(0)
     .unwrap()
@@ -841,7 +849,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
   assert!(
     payload
       .dyn_meta_mut()
-      .field_mut("absent_label")
+      .field_mut_dyn("absent_label")
       .unwrap()
       .item_mut(0)
       .ok()
@@ -852,7 +860,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
   assert!(
     payload
       .dyn_meta_mut()
-      .field_mut("result_label")
+      .field_mut_dyn("result_label")
       .unwrap()
       .field_mut("Err")
       .ok()
@@ -860,7 +868,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
   );
   *payload
     .dyn_meta_mut()
-    .field_mut("result_label")
+    .field_mut_dyn("result_label")
     .unwrap()
     .field_mut("Ok")
     .unwrap()
@@ -873,7 +881,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
   // Tuple and array item mutation
   *payload
     .dyn_meta_mut()
-    .field_mut("pair")
+    .field_mut_dyn("pair")
     .unwrap()
     .item_mut(0)
     .unwrap()
@@ -883,7 +891,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
 
   *payload
     .dyn_meta_mut()
-    .field_mut("bytes")
+    .field_mut_dyn("bytes")
     .unwrap()
     .item_mut(1)
     .unwrap()
@@ -894,7 +902,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
   // Enum struct-variant field mutation, one level deep
   *payload
     .dyn_meta_mut()
-    .field_mut("status")
+    .field_mut_dyn("status")
     .unwrap()
     .field_mut("Struct")
     .unwrap()
@@ -906,7 +914,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
     payload
       .status
       .dyn_meta()
-      .field("Struct")
+      .field_dyn("Struct")
       .unwrap()
       .field("count")
       .unwrap()
@@ -917,7 +925,7 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
   // String-keyed and typed-keyed map mutation
   *payload
     .dyn_meta_mut()
-    .field_mut("labels_by_name")
+    .field_mut_dyn("labels_by_name")
     .unwrap()
     .key_mut("primary")
     .unwrap()
@@ -958,14 +966,14 @@ fn derive_meta_mut_supports_tuple_and_unit_enum_variants() {
   let mut tuple = Status::Tuple(9, true);
   *tuple
     .dyn_meta_mut()
-    .item_mut(0)
+    .item_mut_dyn(0)
     .unwrap()
     .to_mut::<u8>()
     .unwrap() = 90;
   assert_eq!(tuple.dyn_meta().item(0).unwrap().to_ref::<u8>(), Some(&90));
   *tuple
     .dyn_meta_mut()
-    .field_mut("Tuple")
+    .field_mut_dyn("Tuple")
     .unwrap()
     .item_mut(1)
     .unwrap()
@@ -980,7 +988,7 @@ fn derive_meta_mut_supports_tuple_and_unit_enum_variants() {
   assert!(
     ready
       .dyn_meta_mut()
-      .field_mut("Ready")
+      .field_mut_dyn("Ready")
       .unwrap()
       .field_mut("missing")
       .ok()
@@ -1001,7 +1009,7 @@ fn derive_meta_supports_tuple_and_unit_enum_variants() {
   assert_eq!(
     tuple
       .dyn_meta()
-      .field("Tuple")
+      .field_dyn("Tuple")
       .unwrap()
       .item(1)
       .unwrap()
@@ -1018,7 +1026,7 @@ fn derive_meta_supports_tuple_and_unit_enum_variants() {
   assert!(
     ready
       .dyn_meta()
-      .field("Ready")
+      .field_dyn("Ready")
       .unwrap()
       .field("missing")
       .is_none()
@@ -1149,7 +1157,7 @@ fn raw_identifiers_use_unprefixed_names() {
   assert_eq!(keyword.field_path(Keyword::FIELD_TYPE.path()), Some(&1));
   *keyword
     .dyn_meta_mut()
-    .field_mut("type")
+    .field_mut_dyn("type")
     .unwrap()
     .to_mut::<u8>()
     .unwrap() = 2;
@@ -1284,7 +1292,7 @@ fn generic_bounds_distinguish_same_named_types() {
   );
   *value
     .dyn_meta_mut()
-    .field_mut("child")
+    .field_mut_dyn("child")
     .unwrap()
     .field_mut("value")
     .unwrap()
@@ -1320,7 +1328,7 @@ mod shadowed_names {
   fn generated_code_ignores_shadowed_names() {
     let record = Record { name: 1, index: 2 };
     assert_eq!(
-      record.dyn_meta().field("index"),
+      record.dyn_meta().field_dyn("index"),
       Some(ObjectRef::new(&2_u8))
     );
 
@@ -1330,16 +1338,16 @@ mod shadowed_names {
       value: 5,
     };
     assert_eq!(
-      captures.dyn_meta().field("name"),
+      captures.dyn_meta().field_dyn("name"),
       Some(ObjectRef::new(&3_u8))
     );
     assert_eq!(
-      captures.dyn_meta().field("value"),
+      captures.dyn_meta().field_dyn("value"),
       Some(ObjectRef::new(&5_u8))
     );
     *captures
       .dyn_meta_mut()
-      .field_mut("index")
+      .field_mut_dyn("index")
       .unwrap()
       .to_mut::<u8>()
       .unwrap() = 6;

@@ -424,9 +424,9 @@ fn resolve_path<'a>(target: &'a mut dyn MetaMut, path: &OwnedPath) -> Option<&'a
   let mut current = target;
   for segment in path {
     current = match segment {
-      PathSegment::Field(name) => current.field_mut(name)?,
-      PathSegment::Item(index) => current.item_mut(index)?,
-      PathSegment::Key(key) => current.key_mut(key)?,
+      PathSegment::Field(name) => current.field_mut_dyn(name)?,
+      PathSegment::Item(index) => current.item_mut_dyn(index)?,
+      PathSegment::Key(key) => current.key_mut_dyn(key)?,
     }
     .inner;
   }

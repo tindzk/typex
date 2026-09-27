@@ -6,7 +6,7 @@ use core::any::Any;
 fn set_overwrites_matching_type_in_place() {
   let mut number = Number(1);
 
-  let result = number.dyn_meta_mut().set(Object::new(Number(2)));
+  let result = number.dyn_meta_mut().set_dyn(Object::new(Number(2)));
 
   assert!(result.is_ok());
   assert_eq!(number, Number(2));
@@ -18,7 +18,7 @@ fn set_rejects_mismatched_type_and_returns_it_back() {
 
   let object = number
     .dyn_meta_mut()
-    .set(Object::new(Text("hello")))
+    .set_dyn(Object::new(Text("hello")))
     .unwrap_err();
 
   assert_eq!(number, Number(1));
@@ -38,7 +38,7 @@ fn set_replaces_a_struct_wholesale_through_dyn_meta_mut() {
   };
 
   let target: &mut dyn MetaMut = &mut pair;
-  let result = target.set(Object::new(replacement.clone()));
+  let result = target.set_dyn(Object::new(replacement.clone()));
 
   assert!(result.is_ok());
   assert_eq!(pair, replacement);
@@ -87,7 +87,10 @@ fn set_returns_error_when_replacement_is_rejected() {
 
   let mut opaque = Opaque;
 
-  let object = opaque.dyn_meta_mut().set(Object::new(Opaque)).unwrap_err();
+  let object = opaque
+    .dyn_meta_mut()
+    .set_dyn(Object::new(Opaque))
+    .unwrap_err();
 
   assert!(object.is::<Opaque>());
 }
@@ -115,7 +118,7 @@ fn field_mut_and_to_mut_mutate_the_original_value() {
 
   *pair
     .dyn_meta_mut()
-    .field_mut("count")
+    .field_mut_dyn("count")
     .unwrap()
     .to_mut::<u16>()
     .unwrap() = 9;
@@ -192,13 +195,13 @@ fn vec_item_mut_mutates_element_in_place() {
 
   *numbers
     .dyn_meta_mut()
-    .item_mut(1)
+    .item_mut_dyn(1)
     .unwrap()
     .to_mut::<Number>()
     .unwrap() = Number(20);
 
   assert_eq!(numbers, vec![Number(1), Number(20), Number(3)]);
-  assert!(numbers.dyn_meta_mut().item_mut(3).is_none());
+  assert!(numbers.dyn_meta_mut().item_mut_dyn(3).is_none());
 }
 
 #[test]
@@ -208,14 +211,14 @@ fn option_meta_mut_forwards_mutation_and_absence() {
 
   value
     .dyn_meta_mut()
-    .item_mut(0)
+    .item_mut_dyn(0)
     .unwrap()
     .to_mut::<Number>()
     .unwrap()
     .0 = 70;
   assert_eq!(value, Some(Number(70)));
 
-  assert!(absent.dyn_meta_mut().item_mut(0).is_none());
+  assert!(absent.dyn_meta_mut().item_mut_dyn(0).is_none());
 }
 
 #[test]
@@ -224,17 +227,17 @@ fn result_meta_mut_exposes_active_variant() {
   let mut err: Result<Number, Text> = Err(Text("boom"));
 
   ok.dyn_meta_mut()
-    .field_mut("Ok")
+    .field_mut_dyn("Ok")
     .unwrap()
     .to_mut::<Number>()
     .unwrap()
     .0 = 70;
   assert_eq!(ok, Ok(Number(70)));
-  assert!(ok.dyn_meta_mut().field_mut("Err").is_none());
+  assert!(ok.dyn_meta_mut().field_mut_dyn("Err").is_none());
 
   err
     .dyn_meta_mut()
-    .item_mut(0)
+    .item_mut_dyn(0)
     .unwrap()
     .to_mut::<Text>()
     .unwrap()
@@ -248,13 +251,13 @@ fn tuple_meta_mut_mutates_by_field_or_index() {
 
   *pair
     .dyn_meta_mut()
-    .field_mut("0")
+    .field_mut_dyn("0")
     .unwrap()
     .to_mut::<u8>()
     .unwrap() = 9;
   *pair
     .dyn_meta_mut()
-    .item_mut(1)
+    .item_mut_dyn(1)
     .unwrap()
     .to_mut::<bool>()
     .unwrap() = false;
@@ -267,13 +270,13 @@ fn map_meta_mut_supports_string_and_typed_key_lookup() {
   let mut by_name = BTreeMap::from([(String::from("primary"), Number(1))]);
   by_name
     .dyn_meta_mut()
-    .key_mut("primary")
+    .key_mut_dyn("primary")
     .unwrap()
     .to_mut::<Number>()
     .unwrap()
     .0 = 11;
   assert_eq!(by_name.get("primary"), Some(&Number(11)));
-  assert!(by_name.dyn_meta_mut().key_mut("missing").is_none());
+  assert!(by_name.dyn_meta_mut().key_mut_dyn("missing").is_none());
 
   let mut by_id = BTreeMap::from([(7usize, Number(1))]);
   by_id
@@ -293,24 +296,24 @@ fn rc_and_arc_meta_mut_forward_only_when_uniquely_owned() {
     label: Text("x"),
   });
   rc.dyn_meta_mut()
-    .field_mut("count")
+    .field_mut_dyn("count")
     .unwrap()
     .to_mut::<u16>()
     .unwrap();
 
   let _clone = Rc::clone(&rc);
-  assert!(rc.dyn_meta_mut().field_mut("count").is_none());
+  assert!(rc.dyn_meta_mut().field_mut_dyn("count").is_none());
   drop(_clone);
-  assert!(rc.dyn_meta_mut().field_mut("count").is_some());
+  assert!(rc.dyn_meta_mut().field_mut_dyn("count").is_some());
 
   let mut arc = Arc::new(Pair {
     count: 1,
     label: Text("x"),
   });
   let _clone = Arc::clone(&arc);
-  assert!(arc.dyn_meta_mut().field_mut("count").is_none());
+  assert!(arc.dyn_meta_mut().field_mut_dyn("count").is_none());
   drop(_clone);
-  assert!(arc.dyn_meta_mut().field_mut("count").is_some());
+  assert!(arc.dyn_meta_mut().field_mut_dyn("count").is_some());
 }
 
 #[test]
@@ -322,7 +325,7 @@ fn box_meta_mut_forwards_to_inner_value() {
 
   *boxed
     .dyn_meta_mut()
-    .field_mut("count")
+    .field_mut_dyn("count")
     .unwrap()
     .to_mut::<u16>()
     .unwrap() = 5;
@@ -333,13 +336,13 @@ fn box_meta_mut_forwards_to_inner_value() {
 #[test]
 fn set_and_heap_meta_mut_have_no_structural_mutation_but_support_to_mut() {
   let mut set = BTreeSet::from([Number(1), Number(2)]);
-  assert!(set.dyn_meta_mut().item_mut(0).is_none());
+  assert!(set.dyn_meta_mut().item_mut_dyn(0).is_none());
   assert!(set.dyn_meta_mut().to_mut::<BTreeSet<Number>>().is_some());
   set.insert(Number(3));
   assert_eq!(set.len(), 3);
 
   let mut heap = BinaryHeap::from([Number(1), Number(2)]);
-  assert!(heap.dyn_meta_mut().item_mut(0).is_none());
+  assert!(heap.dyn_meta_mut().item_mut_dyn(0).is_none());
   heap.push(Number(3));
   assert_eq!(heap.len(), 3);
 }
@@ -351,7 +354,7 @@ fn linked_list_and_vec_deque_meta_mut_mutate_by_index() {
   list.push_back(Number(2));
   list
     .dyn_meta_mut()
-    .item_mut(1)
+    .item_mut_dyn(1)
     .unwrap()
     .to_mut::<Number>()
     .unwrap()
@@ -376,7 +379,7 @@ fn linked_list_and_vec_deque_meta_mut_mutate_by_index() {
   let mut deque = VecDeque::from([Number(1), Number(2)]);
   deque
     .dyn_meta_mut()
-    .item_mut(0)
+    .item_mut_dyn(0)
     .unwrap()
     .to_mut::<Number>()
     .unwrap()

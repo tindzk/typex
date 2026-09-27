@@ -67,14 +67,6 @@ impl dyn Meta + '_ {
     }
   }
 
-  /// Returns an exposed field by name.
-  ///
-  /// Options forward the lookup to their contained value.
-  #[inline]
-  pub fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
-    self.field_dyn(name)
-  }
-
   /// Returns the exposed field names in declaration order.
   pub fn field_names(&self) -> &'static [&'static str] {
     match self.reflect() {
@@ -190,11 +182,6 @@ macro_rules! forward_meta_reads {
         self.as_meta().option_value()
       }
 
-      /// Returns an exposed field by name.
-      pub fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
-        self.as_meta().field(name)
-      }
-
       /// Returns the exposed field names in declaration order.
       pub fn field_names(&self) -> &'static [&'static str] {
         self.as_meta().field_names()
@@ -304,7 +291,7 @@ impl<'a> ObjectRef<'a> {
 
   /// Returns an exposed field by name.
   pub fn field(&self, name: &str) -> Option<ObjectRef<'a>> {
-    self.inner.field(name)
+    self.inner.field_dyn(name)
   }
 
   /// Returns the exposed field names in declaration order.
@@ -417,6 +404,11 @@ impl Object {
   pub fn into_rc(self) -> Rc<dyn Meta> {
     Rc::from(self.0)
   }
+
+  /// Returns an exposed field by name; see [`Meta::field_dyn`].
+  pub fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
+    self.0.field_dyn(name)
+  }
 }
 
 impl From<Box<dyn Meta>> for Object {
@@ -491,9 +483,9 @@ impl<'a> ObjectRefMut<'a> {
       return Some(ObjectRefMut::new(current));
     };
     let child = match segment {
-      PathSegment::Field(name) => current.field_mut(name)?,
-      PathSegment::Item(index) => current.item_mut(*index)?,
-      PathSegment::Key(key) => current.key_mut(key)?,
+      PathSegment::Field(name) => current.field_mut_dyn(name)?,
+      PathSegment::Item(index) => current.item_mut_dyn(*index)?,
+      PathSegment::Key(key) => current.key_mut_dyn(key)?,
     };
     Self::path_from(child.inner, rest)
   }
@@ -566,7 +558,7 @@ impl<'a> ObjectRefMut<'a> {
   pub fn field_mut(&mut self, name: &str) -> Result<ObjectRefMut<'_>, ReflectiveError> {
     self
       .inner
-      .field_mut(name)
+      .field_mut_dyn(name)
       .ok_or(ReflectiveError::PathNotFound)
   }
 
@@ -577,7 +569,7 @@ impl<'a> ObjectRefMut<'a> {
   pub fn item_mut(&mut self, index: usize) -> Result<ObjectRefMut<'_>, ReflectiveError> {
     self
       .inner
-      .item_mut(index)
+      .item_mut_dyn(index)
       .ok_or(ReflectiveError::PathNotFound)
   }
 
@@ -586,7 +578,10 @@ impl<'a> ObjectRefMut<'a> {
   /// Returns [`ReflectiveError::PathNotFound`] when map-like access is
   /// unsupported or `key` is not present.
   pub fn key_mut(&mut self, key: &str) -> Result<ObjectRefMut<'_>, ReflectiveError> {
-    self.inner.key_mut(key).ok_or(ReflectiveError::PathNotFound)
+    self
+      .inner
+      .key_mut_dyn(key)
+      .ok_or(ReflectiveError::PathNotFound)
   }
 
   /// Inserts or replaces a value under a key when the referenced value exposes
@@ -665,7 +660,7 @@ impl<'a> ObjectRefMut<'a> {
   pub fn set(self, value: Object) -> Result<(), ReflectiveError> {
     self
       .inner
-      .set(value)
+      .set_dyn(value)
       .map_err(|_| ReflectiveError::MutationTypeMismatch)
   }
 
@@ -677,7 +672,7 @@ impl<'a> ObjectRefMut<'a> {
   pub fn replace(&mut self, value: Object) -> Result<Object, ReflectiveError> {
     self
       .inner
-      .replace(value)
+      .replace_dyn(value)
       .map_err(|_| ReflectiveError::MutationTypeMismatch)
   }
 
@@ -829,6 +824,37 @@ impl ObjectMut {
   pub fn into_object(self) -> Object {
     Object::new(MetaMutObject(self.0))
   }
+
+  /// Returns an exposed field by name; see [`Meta::field_dyn`].
+  pub fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
+    self.0.field_dyn(name)
+  }
+
+  /// Returns a mutable field by name; see [`MetaMut::field_mut_dyn`].
+  pub fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
+    self.0.field_mut_dyn(name)
+  }
+
+  /// Returns a mutable item at `index`; see [`MetaMut::item_mut_dyn`].
+  pub fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
+    self.0.item_mut_dyn(index)
+  }
+
+  /// Returns a mutable value for `key`; see [`MetaMut::key_mut_dyn`].
+  pub fn key_mut(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
+    self.0.key_mut_dyn(key)
+  }
+
+  /// Overwrites the whole value; see [`MetaMut::set_dyn`].
+  pub fn set(&mut self, value: Object) -> Result<(), Object> {
+    self.0.set_dyn(value)
+  }
+
+  /// Replaces the whole value and returns the previous value; see
+  /// [`MetaMut::replace_dyn`].
+  pub fn replace(&mut self, value: Object) -> Result<Object, Object> {
+    self.0.replace_dyn(value)
+  }
 }
 
 impl From<Box<dyn MetaMut>> for ObjectMut {
@@ -961,6 +987,11 @@ impl SendObject {
   /// Converts this value into a plain [`Object`].
   pub fn into_object(self) -> Object {
     SendMeta::into_object(self.0)
+  }
+
+  /// Returns an exposed field by name; see [`Meta::field_dyn`].
+  pub fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
+    self.0.field_dyn(name)
   }
 }
 

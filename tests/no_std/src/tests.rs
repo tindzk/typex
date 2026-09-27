@@ -89,7 +89,7 @@ fn meta_smoke_test() {
   assert_eq!(
     payload
       .dyn_meta()
-      .field("values")
+      .field_dyn("values")
       .unwrap()
       .to_ref::<usize>(),
     Some(&2)
@@ -97,18 +97,18 @@ fn meta_smoke_test() {
   assert_eq!(
     payload
       .dyn_meta()
-      .field("label")
+      .field_dyn("label")
       .unwrap()
       .to_ref::<&'static str>(),
     Some(&"ok")
   );
-  let labels = payload.dyn_meta().field("labels").unwrap();
+  let labels = payload.dyn_meta().field_dyn("labels").unwrap();
   assert_eq!(labels.len(), Some(1));
   assert_eq!(labels.item(0).unwrap().field_names(), &["name"]);
   assert_eq!(
     payload
       .dyn_meta()
-      .field("optional_label")
+      .field_dyn("optional_label")
       .unwrap()
       .field("name")
       .unwrap()
@@ -116,17 +116,21 @@ fn meta_smoke_test() {
     Some(&"optional")
   );
   assert_eq!(
-    payload.dyn_meta().field("optional_label").unwrap().len(),
+    payload
+      .dyn_meta()
+      .field_dyn("optional_label")
+      .unwrap()
+      .len(),
     Some(1)
   );
   assert_eq!(
-    payload.dyn_meta().field("absent_label").unwrap().len(),
+    payload.dyn_meta().field_dyn("absent_label").unwrap().len(),
     Some(0)
   );
   assert!(
     payload
       .dyn_meta()
-      .field("absent_label")
+      .field_dyn("absent_label")
       .unwrap()
       .field("name")
       .is_none()
@@ -134,7 +138,7 @@ fn meta_smoke_test() {
   assert!(
     payload
       .dyn_meta()
-      .field("absent_label")
+      .field_dyn("absent_label")
       .unwrap()
       .item(0)
       .is_none()
@@ -142,7 +146,7 @@ fn meta_smoke_test() {
   assert_eq!(
     payload
       .dyn_meta()
-      .field("pair")
+      .field_dyn("pair")
       .unwrap()
       .item(0)
       .unwrap()
@@ -152,7 +156,7 @@ fn meta_smoke_test() {
   assert_eq!(
     payload
       .dyn_meta()
-      .field("bytes")
+      .field_dyn("bytes")
       .unwrap()
       .item(1)
       .unwrap()
@@ -160,7 +164,7 @@ fn meta_smoke_test() {
     Some(&0xff)
   );
 
-  let labels_by_name = payload.dyn_meta().field("labels_by_name").unwrap();
+  let labels_by_name = payload.dyn_meta().field_dyn("labels_by_name").unwrap();
   assert_eq!(labels_by_name.keys(), Some(vec!["primary".to_string()]));
   assert_eq!(
     labels_by_name
@@ -181,7 +185,7 @@ fn meta_smoke_test() {
       .to_ref::<&'static str>(),
     Some(&"indexed")
   );
-  let status = payload.dyn_meta().field("status").unwrap();
+  let status = payload.dyn_meta().field_dyn("status").unwrap();
   assert_eq!(status.field_names(), &["Struct", "count"]);
   assert_eq!(
     status
@@ -253,7 +257,7 @@ fn tuple_and_unit_enum_variants_are_accessible() {
   assert_eq!(
     tuple
       .dyn_meta()
-      .field("Tuple")
+      .field_dyn("Tuple")
       .unwrap()
       .item(1)
       .unwrap()
@@ -266,7 +270,7 @@ fn tuple_and_unit_enum_variants_are_accessible() {
   assert!(
     ready
       .dyn_meta()
-      .field("Ready")
+      .field_dyn("Ready")
       .unwrap()
       .field("missing")
       .is_none()
@@ -297,7 +301,7 @@ fn derived_set_swaps_a_nested_field_wholesale() {
   assert_eq!(
     payload
       .dyn_meta()
-      .field("optional_label")
+      .field_dyn("optional_label")
       .unwrap()
       .field("name")
       .unwrap()

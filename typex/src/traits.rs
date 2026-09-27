@@ -454,30 +454,6 @@ impl dyn MetaMut + '_ {
     query.resolve(ObjectRefMut::new(self))
   }
 
-  /// Returns a mutable field by name.
-  ///
-  /// Options forward the lookup to their contained value.
-  #[inline]
-  pub fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
-    self.field_mut_dyn(name)
-  }
-
-  /// Returns a mutable item at `index`.
-  ///
-  /// An option exposes its contained value at index 0.
-  #[inline]
-  pub fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
-    self.item_mut_dyn(index)
-  }
-
-  /// Returns a mutable value for `key`.
-  ///
-  /// Options forward the lookup to their contained value.
-  #[inline]
-  pub fn key_mut(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
-    self.key_mut_dyn(key)
-  }
-
   /// Inserts `value` under `key`; see [`MapAccessMut::insert_key`].
   ///
   /// Options forward the insertion to their contained value.
@@ -539,17 +515,6 @@ impl dyn MetaMut + '_ {
       ReflectMut::Sequence(value) => value.move_item(from, to),
       _ => Err(MoveItemError::Unsupported),
     }
-  }
-
-  /// Overwrites the whole value; see [`MetaMut::set_dyn`].
-  pub fn set(&mut self, value: Object) -> Result<(), Object> {
-    self.set_dyn(value)
-  }
-
-  /// Replaces the whole value and returns the previous value; see
-  /// [`MetaMut::replace_dyn`].
-  pub fn replace(&mut self, value: Object) -> Result<Object, Object> {
-    self.replace_dyn(value)
   }
 
   /// Applies an ordered list of [`PatchOperation`] values. A failed operation
