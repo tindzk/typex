@@ -1,7 +1,6 @@
 use crate::path::OwnedPath;
 use crate::{
-  Meta, MetaMut, MoveItemError, Object, ObjectRefMut, PathSegment, ReflectiveError, TypeInfo,
-  ValueKind,
+  Meta, MetaMut, MoveItemError, Object, ObjectRefMut, PathSegment, ReflectMut, TypeInfo, ValueKind,
 };
 // Keep public API names in scope for short intra-doc links.
 #[allow(unused_imports)]
@@ -493,109 +492,39 @@ impl fmt::Display for ApplyError<'_> {
 #[cfg(feature = "std")]
 impl std::error::Error for ApplyError<'_> {}
 
-/// A mutation target that immediate patch operations can act on.
-pub(crate) trait PatchTarget: Sized {
-  fn type_info(&self) -> TypeInfo;
-  fn kind(&self) -> ValueKind;
-  fn len(&self) -> Option<usize>;
-  fn set(self, value: Object) -> Result<(), ReflectiveError>;
-  fn insert_key(&mut self, key: &str, value: Object) -> Result<(), ReflectiveError>;
-  fn insert_item(&mut self, index: usize, value: Object) -> Result<(), ReflectiveError>;
-  fn push_item(&mut self, value: Object) -> Result<(), ReflectiveError>;
-  fn remove_key(&mut self, key: &str) -> Result<Object, ReflectiveError>;
-  fn remove_item(&mut self, index: usize) -> Result<Object, ReflectiveError>;
-  fn move_item(&mut self, from: usize, to: usize) -> Result<(), MoveItemError>;
-}
-
-impl PatchTarget for ObjectRefMut<'_> {
-  fn type_info(&self) -> TypeInfo {
-    Self::type_info(self)
-  }
-  fn kind(&self) -> ValueKind {
-    Self::kind(self)
-  }
-  fn len(&self) -> Option<usize> {
-    Self::len(self)
-  }
-  fn set(self, value: Object) -> Result<(), ReflectiveError> {
-    Self::set(self, value)
-  }
-  fn insert_key(&mut self, key: &str, value: Object) -> Result<(), ReflectiveError> {
-    Self::insert_key(self, key, value).map(|_| ())
-  }
-  fn insert_item(&mut self, index: usize, value: Object) -> Result<(), ReflectiveError> {
-    Self::insert_item(self, index, value).map(|_| ())
-  }
-  fn push_item(&mut self, value: Object) -> Result<(), ReflectiveError> {
-    Self::push_item(self, value).map(|_| ())
-  }
-  fn remove_key(&mut self, key: &str) -> Result<Object, ReflectiveError> {
-    Self::remove_key(self, key)
-  }
-  fn remove_item(&mut self, index: usize) -> Result<Object, ReflectiveError> {
-    Self::remove_item(self, index)
-  }
-  fn move_item(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {
-    self.inner.move_item(from, to)
-  }
-}
-
-/// Resolves patch paths into [`PatchTarget`] values.
-pub(crate) trait PatchResolver {
-  type Target<'b>: PatchTarget
-  where
-    Self: 'b;
-
-  fn resolve<'b>(&'b mut self, path: &[PathSegment<'_>]) -> Option<Self::Target<'b>>;
-}
-
-impl PatchResolver for dyn MetaMut + '_ {
-  type Target<'b>
-    = ObjectRefMut<'b>
-  where
-    Self: 'b;
-
-  fn resolve<'b>(&'b mut self, path: &[PathSegment<'_>]) -> Option<ObjectRefMut<'b>> {
-    ObjectRefMut::path_from(self, path)
-  }
-}
-
-fn resolve_target<'a, 'p, R>(
-  root: &'a mut R,
+fn resolve_target<'a, 'p>(
+  root: &'a mut dyn MetaMut,
   path: Vec<PathSegment<'p>>,
   operation: PatchOperationKind,
-) -> Result<(R::Target<'a>, Vec<PathSegment<'p>>), ApplyError<'p>>
-where
-  R: PatchResolver + ?Sized + 'a,
-{
-  let target = match root.resolve(&path) {
-    Some(target) => target,
-    None => {
-      return Err(ApplyError::PathNotFound { path, operation });
-    }
-  };
-  Ok((target, path))
+) -> Result<(&'a mut dyn MetaMut, Vec<PathSegment<'p>>), ApplyError<'p>> {
+  match ObjectRefMut::path_from(root, &path) {
+    Some(target) => Ok((target.inner, path)),
+    None => Err(ApplyError::PathNotFound { path, operation }),
+  }
 }
 
-fn resolve_container<'a, 'p, R>(
-  root: &'a mut R,
+/// Reports why `target` exposes no mutable shape for an operation that needs
+/// `expected`.
+///
+/// Callers match on [`MetaMut::reflect_mut`] first and compute the kind only on
+/// this error path. A target of the expected kind without matching mutable
+/// structure, such as a `BTreeSet`, does not support the operation.
+fn container_error<'p>(
+  target: &dyn MetaMut,
   path: Vec<PathSegment<'p>>,
   operation: PatchOperationKind,
   expected: ValueKind,
-) -> Result<(R::Target<'a>, Vec<PathSegment<'p>>), ApplyError<'p>>
-where
-  R: PatchResolver + ?Sized + 'a,
-{
-  let (target, path) = resolve_target(root, path, operation)?;
+) -> ApplyError<'p> {
   let actual = target.kind();
-  if actual != expected {
-    return Err(ApplyError::ShapeMismatch {
+  if actual == expected {
+    ApplyError::Unsupported { path, operation }
+  } else {
+    ApplyError::ShapeMismatch {
       path,
       expected,
       actual,
-    });
+    }
   }
-  Ok((target, path))
 }
 
 /// Maps a failed reflective operation onto [`ApplyError::Unsupported`],
@@ -608,15 +537,16 @@ fn unsupported<'p, T, E>(
   result.map_err(|_| ApplyError::Unsupported { path, operation })
 }
 
-fn apply_operation<'p, R: PatchResolver + ?Sized>(
-  root: &mut R,
+fn apply_operation<'p>(
+  root: &mut dyn MetaMut,
   operation: PatchOperation<'p>,
 ) -> Result<(), ApplyError<'p>> {
   match operation {
     PatchOperation::Set { path, value } => {
-      let (child, path) = resolve_target(root, path, PatchOperationKind::Set)?;
+      let operation = PatchOperationKind::Set;
+      let (target, path) = resolve_target(root, path, operation)?;
       let expected = value.type_info();
-      let actual = child.type_info();
+      let actual = target.type_info();
       if expected != actual {
         return Err(ApplyError::TypeMismatch {
           path,
@@ -624,89 +554,90 @@ fn apply_operation<'p, R: PatchResolver + ?Sized>(
           actual,
         });
       }
-      unsupported(child.set(value), path, PatchOperationKind::Set)?;
+      unsupported(target.set_dyn(value), path, operation)?;
     }
     PatchOperation::InsertKey { path, key, value } => {
-      let (mut map, path) =
-        resolve_container(root, path, PatchOperationKind::InsertKey, ValueKind::Map)?;
-      unsupported(
-        map.insert_key(&key, value),
-        path,
-        PatchOperationKind::InsertKey,
-      )?;
+      let operation = PatchOperationKind::InsertKey;
+      let (target, path) = resolve_target(root, path, operation)?;
+      let ReflectMut::Map(map) = target.reflect_mut() else {
+        return Err(container_error(target, path, operation, ValueKind::Map));
+      };
+      unsupported(map.insert_key(&key, value), path, operation)?;
     }
     PatchOperation::RemoveKey { path, key } => {
-      let (mut map, path) =
-        resolve_container(root, path, PatchOperationKind::RemoveKey, ValueKind::Map)?;
-      unsupported(map.remove_key(&key), path, PatchOperationKind::RemoveKey)?;
+      let operation = PatchOperationKind::RemoveKey;
+      let (target, path) = resolve_target(root, path, operation)?;
+      let ReflectMut::Map(map) = target.reflect_mut() else {
+        return Err(container_error(target, path, operation, ValueKind::Map));
+      };
+      unsupported(map.remove_key(&key).ok_or(()), path, operation)?;
     }
     PatchOperation::InsertItem { path, index, value } => {
-      let (mut sequence, path) = resolve_container(
-        root,
-        path,
-        PatchOperationKind::InsertItem,
-        ValueKind::Sequence,
-      )?;
-      unsupported(
-        sequence.insert_item(index, value),
-        path,
-        PatchOperationKind::InsertItem,
-      )?;
+      let operation = PatchOperationKind::InsertItem;
+      let (target, path) = resolve_target(root, path, operation)?;
+      let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
+        return Err(container_error(
+          target,
+          path,
+          operation,
+          ValueKind::Sequence,
+        ));
+      };
+      unsupported(sequence.insert_item(index, value), path, operation)?;
     }
     PatchOperation::PushItem { path, value } => {
-      let (mut sequence, path) = resolve_container(
-        root,
-        path,
-        PatchOperationKind::PushItem,
-        ValueKind::Sequence,
-      )?;
-      unsupported(
-        sequence.push_item(value),
-        path,
-        PatchOperationKind::PushItem,
-      )?;
+      let operation = PatchOperationKind::PushItem;
+      let (target, path) = resolve_target(root, path, operation)?;
+      let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
+        return Err(container_error(
+          target,
+          path,
+          operation,
+          ValueKind::Sequence,
+        ));
+      };
+      unsupported(sequence.push_item(value), path, operation)?;
     }
     PatchOperation::RemoveItem { path, index } => {
-      let (mut sequence, path) = resolve_container(
-        root,
-        path,
-        PatchOperationKind::RemoveItem,
-        ValueKind::Sequence,
-      )?;
-      unsupported(
-        sequence.remove_item(index),
-        path,
-        PatchOperationKind::RemoveItem,
-      )?;
+      let operation = PatchOperationKind::RemoveItem;
+      let (target, path) = resolve_target(root, path, operation)?;
+      let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
+        return Err(container_error(
+          target,
+          path,
+          operation,
+          ValueKind::Sequence,
+        ));
+      };
+      unsupported(sequence.remove_item(index).ok_or(()), path, operation)?;
     }
     PatchOperation::MoveItem { path, from, to } => {
-      let (mut sequence, path) = resolve_container(
-        root,
-        path,
-        PatchOperationKind::MoveItem,
-        ValueKind::Sequence,
-      )?;
-      // Check the indices here so the error names the offending index.
-      let Some(len) = sequence.len() else {
-        return Err(ApplyError::Unsupported {
+      let operation = PatchOperationKind::MoveItem;
+      let (target, path) = resolve_target(root, path, operation)?;
+      let len = target.len();
+      let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
+        return Err(container_error(
+          target,
           path,
-          operation: PatchOperationKind::MoveItem,
-        });
+          operation,
+          ValueKind::Sequence,
+        ));
+      };
+      // Check the indices here so the error names the offending index.
+      let Some(len) = len else {
+        return Err(ApplyError::Unsupported { path, operation });
       };
       if let Some(index) = move_index_out_of_bounds(from, to, len) {
         return Err(ApplyError::IndexOutOfBounds {
           path,
-          operation: PatchOperationKind::MoveItem,
+          operation,
           index,
           len,
         });
       }
       sequence.move_item(from, to).map_err(|error| match error {
         MoveItemError::RestoreFailed => ApplyError::ItemLost { path, index: from },
-        _ => ApplyError::Unsupported {
-          path,
-          operation: PatchOperationKind::MoveItem,
-        },
+        _ => ApplyError::Unsupported { path, operation },
       })?;
     }
   }
@@ -725,9 +656,11 @@ pub(crate) fn move_index_out_of_bounds(from: usize, to: usize, len: usize) -> Op
   }
 }
 
-pub(crate) fn apply_patch<'p, R, I>(root: &mut R, operations: I) -> Result<(), ApplyError<'p>>
+pub(crate) fn apply_patch<'p, I>(
+  root: &mut dyn MetaMut,
+  operations: I,
+) -> Result<(), ApplyError<'p>>
 where
-  R: PatchResolver + ?Sized,
   I: IntoIterator<Item = PatchOperation<'p>>,
 {
   for operation in operations {

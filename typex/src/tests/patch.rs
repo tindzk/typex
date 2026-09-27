@@ -368,3 +368,73 @@ fn built_in_containers_do_not_require_clone_for_meta_access() {
     2
   );
 }
+
+#[test]
+fn apply_reports_shape_mismatch_for_a_container_of_another_kind() {
+  let mut items = vec![1_u8, 2];
+  let patch = [PatchOperation::insert_key([], "key", 3_u8)];
+
+  let error = ObjectRefMut::new(&mut items).apply(patch).unwrap_err();
+
+  assert_eq!(
+    error,
+    ApplyError::ShapeMismatch {
+      path: vec![],
+      expected: ValueKind::Map,
+      actual: ValueKind::Sequence,
+    }
+  );
+  assert_eq!(items, vec![1, 2]);
+}
+
+#[test]
+fn apply_reports_shape_mismatch_for_a_map_inside_an_option() {
+  let mut map = Some(BTreeMap::from([(String::from("keep"), 1_u8)]));
+  let patch = [PatchOperation::remove_key([], "keep")];
+
+  let error = ObjectRefMut::new(&mut map).apply(patch).unwrap_err();
+
+  assert_eq!(
+    error,
+    ApplyError::ShapeMismatch {
+      path: vec![],
+      expected: ValueKind::Map,
+      actual: ValueKind::Option,
+    }
+  );
+  assert_eq!(map, Some(BTreeMap::from([(String::from("keep"), 1_u8)])));
+}
+
+#[test]
+fn apply_reports_unsupported_edits_of_a_sequence_without_mutable_structure() {
+  let mut set = BTreeSet::from([1_u8, 2]);
+  for (operation, kind) in [
+    (
+      PatchOperation::push_item([], 3_u8),
+      PatchOperationKind::PushItem,
+    ),
+    (
+      PatchOperation::insert_item([], 0, 3_u8),
+      PatchOperationKind::InsertItem,
+    ),
+    (
+      PatchOperation::remove_item([], 0),
+      PatchOperationKind::RemoveItem,
+    ),
+    (
+      PatchOperation::move_item([], 0, 2),
+      PatchOperationKind::MoveItem,
+    ),
+  ] {
+    let error = ObjectRefMut::new(&mut set).apply([operation]).unwrap_err();
+
+    assert_eq!(
+      error,
+      ApplyError::Unsupported {
+        path: vec![],
+        operation: kind,
+      }
+    );
+  }
+  assert_eq!(set, BTreeSet::from([1, 2]));
+}

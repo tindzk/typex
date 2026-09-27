@@ -141,6 +141,12 @@ enum's variant name resolves to the enum itself so that typed variant paths
 can return it. Structural equality treats such a field as equal instead of
 recursing into the same value.
 
+The derives generate `eq_dyn` for structural types. It downcasts the other
+value and compares the fields directly, matching variants by pattern for
+enums. The result equals the default comparison, which reaches each field
+through `Reflect` and the access traits, but avoids two dynamic calls per
+field.
+
 Built-in `BTreeMap` and `HashMap` implementations compare their native keys
 and values directly. The generic structural map access remains string-keyed
 for reflective lookup, but equality must also work for maps whose key type is

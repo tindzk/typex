@@ -226,6 +226,16 @@ fn equality_input() -> (EntryMap, EntryMap) {
   (left.clone(), left)
 }
 
+fn derived_equality_input() -> (PatchState, PatchState) {
+  (state(), state())
+}
+
+#[library_benchmark]
+#[bench::default(setup = derived_equality_input)]
+fn derived_struct_equality((left, right): (PatchState, PatchState)) -> bool {
+  black_box(ObjectRef::new(&left).eq_dyn(ObjectRef::new(&right)))
+}
+
 #[library_benchmark]
 #[bench::default(setup = equality_input)]
 fn generic_map_equality((left, right): (EntryMap, EntryMap)) -> bool {
@@ -237,7 +247,7 @@ library_benchmark_group!(
   // Add a versioned benchmark when its workload needs an incompatible API.
   // IAI records a new benchmark without a baseline until the next pull request.
   benchmarks = apply_patch, mutation_batch_commit, nested_field_path, owned_path_from_slice,
-    owned_path_iter, generic_map_equality, set_in_place, set_via_replace, move_vec_native, move_vec_deque_native,
+    owned_path_iter, generic_map_equality, derived_struct_equality, set_in_place, set_via_replace, move_vec_native, move_vec_deque_native,
     move_linked_list_native
 );
 

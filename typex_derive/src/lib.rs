@@ -81,6 +81,12 @@ fn expand_meta(input: &DeriveInput) -> syn::Result<TokenStream2> {
       Data::Enum(data) => enum_meta(data),
       Data::Union(_) => unreachable!("unions are rejected above"),
     };
+    let eq = match &input.data {
+      Data::Struct(data) => struct_eq(data),
+      Data::Enum(data) => enum_eq(data),
+      Data::Union(_) => unreachable!("unions are rejected above"),
+    };
+    let access = (access, eq);
     let constants = match &input.data {
       Data::Struct(data) => struct_path_constants(input, data),
       Data::Enum(data) => enum_path_constants(input, data),
@@ -101,6 +107,9 @@ fn expand_meta(input: &DeriveInput) -> syn::Result<TokenStream2> {
 
   let name = &input.ident;
   let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+  // `partial_eq` takes precedence over the generated structural comparison.
+  let (access, structural_eq_fn) = access.unzip();
+  let eq_fn = partial_eq_fn.or(structural_eq_fn);
   let access_impl = access.map(|access| {
     quote! {
       impl #impl_generics ::typex::StructAccess for #name #ty_generics #where_clause {
@@ -115,7 +124,7 @@ fn expand_meta(input: &DeriveInput) -> syn::Result<TokenStream2> {
         #shape
       }
 
-      #partial_eq_fn
+      #eq_fn
 
       fn into_any(
         self: ::typex::__private::Box<Self>,
@@ -400,8 +409,18 @@ fn binding(index: usize) -> Ident {
   format_ident!("__typex_field_{}", index)
 }
 
+fn other_binding(index: usize) -> Ident {
+  format_ident!("__typex_other_{}", index)
+}
+
 /// Returns a pattern that binds every field of `variant` to `__typex_field_N`.
 fn variant_bindings(variant: &Variant) -> TokenStream2 {
+  variant_pattern(variant, binding)
+}
+
+/// Returns a pattern that binds every field of `variant` to the name that
+/// `binding` returns for its index.
+fn variant_pattern(variant: &Variant, binding: fn(usize) -> Ident) -> TokenStream2 {
   let ident = &variant.ident;
   match &variant.fields {
     Fields::Named(fields) => {
@@ -418,6 +437,63 @@ fn variant_bindings(variant: &Variant) -> TokenStream2 {
     }
     Fields::Unit => quote! { Self::#ident },
   }
+}
+
+/// Generates an `eq_dyn` that evaluates `body` with `__typex_other`
+/// downcast to `Self`.
+///
+/// The result matches the default structural comparison, which compares the
+/// same exposed fields by name, without dispatching through the access traits.
+fn eq_dyn_fn(body: TokenStream2) -> TokenStream2 {
+  quote! {
+    fn eq_dyn(&self, __typex_other: &dyn ::typex::Meta) -> ::core::primitive::bool {
+      match ::typex::Meta::as_any(__typex_other).downcast_ref::<Self>() {
+        ::core::option::Option::Some(__typex_other) => #body,
+        ::core::option::Option::None => false,
+      }
+    }
+  }
+}
+
+/// Returns `true` followed by an `eq_dyn` comparison for each pair of fields.
+fn fields_eq(pairs: impl Iterator<Item = (TokenStream2, TokenStream2)>) -> TokenStream2 {
+  let comparisons = pairs.map(|(left, right)| {
+    quote! { && ::typex::Meta::eq_dyn(#left, #right as &dyn ::typex::Meta) }
+  });
+  quote! { true #(#comparisons)* }
+}
+
+fn struct_eq(data: &DataStruct) -> TokenStream2 {
+  let body = fields_eq(data.fields.iter().enumerate().map(|(index, field)| {
+    let member = field_member(index, field.ident.as_ref());
+    (quote! { &self.#member }, quote! { &__typex_other.#member })
+  }));
+  eq_dyn_fn(body)
+}
+
+fn enum_eq(data: &DataEnum) -> TokenStream2 {
+  let arms = data.variants.iter().map(|variant| {
+    let pattern = variant_pattern(variant, binding);
+    let other_pattern = variant_pattern(variant, other_binding);
+    let body = fields_eq((0..variant.fields.len()).map(|index| {
+      let (left, right) = (binding(index), other_binding(index));
+      (quote! { #left }, quote! { #right })
+    }));
+    quote! { (#pattern, #other_pattern) => #body }
+  });
+  // A single variant always matches, so a fallback arm would be unreachable.
+  let fallback = (data.variants.len() > 1).then(|| quote! { _ => false, });
+  let body = if data.variants.is_empty() {
+    quote! { match *self {} }
+  } else {
+    quote! {
+      match (self, __typex_other) {
+        #(#arms,)*
+        #fallback
+      }
+    }
+  };
+  eq_dyn_fn(body)
 }
 
 fn variant_wildcard(variant: &Variant) -> TokenStream2 {

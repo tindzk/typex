@@ -1086,6 +1086,51 @@ fn derived_enums_compare_structurally() {
   assert_eq!(Object::new(Shape::Empty), Object::new(Shape::Empty));
 }
 
+#[derive(Debug, Meta)]
+struct Labelled {
+  label: &'static str,
+  values: Vec<u8>,
+}
+
+#[derive(Debug, Meta)]
+struct Point(u8, u8);
+
+#[derive(Debug, Meta)]
+struct Marker;
+
+#[derive(Debug, Meta)]
+enum Only {
+  Value(u8),
+}
+
+#[test]
+fn derived_structs_compare_fields_structurally() {
+  let labelled = Labelled {
+    label: "a",
+    values: vec![1, 2],
+  };
+  assert!(labelled.eq_dyn(&Labelled {
+    label: "a",
+    values: vec![1, 2],
+  }));
+  assert!(!labelled.eq_dyn(&Labelled {
+    label: "b",
+    values: vec![1, 2],
+  }));
+  assert!(!labelled.eq_dyn(&Labelled {
+    label: "a",
+    values: vec![1],
+  }));
+  assert!(!labelled.eq_dyn(&Point(1, 2)));
+
+  assert!(Point(1, 2).eq_dyn(&Point(1, 2)));
+  assert!(!Point(1, 2).eq_dyn(&Point(2, 1)));
+  assert!(Marker.eq_dyn(&Marker));
+
+  assert!(Only::Value(1).eq_dyn(&Only::Value(1)));
+  assert!(!Only::Value(1).eq_dyn(&Only::Value(2)));
+}
+
 #[derive(Debug, Meta, MetaMut)]
 struct Keyword {
   r#type: u8,

@@ -283,9 +283,10 @@ pub trait Meta: Any {
   /// - [`Reflect::Scalar`] values are never equal, so scalar implementations
   ///   override this method.
   ///
-  /// Built-in scalars, `BTreeMap` and `HashMap` override this method. Custom
-  /// opaque leaves need `#[typex(partial_eq)]` or a hand-written
-  /// implementation. Float equality follows `PartialEq`, so `NaN != NaN`.
+  /// Built-in scalars, `BTreeMap`, `HashMap` and the derives override this
+  /// method with equivalent direct comparisons. Custom opaque leaves need
+  /// `#[typex(partial_eq)]` or a hand-written implementation. Float equality
+  /// follows `PartialEq`, so `NaN != NaN`.
   fn eq_dyn(&self, other: &dyn Meta) -> bool {
     self.type_info() == other.type_info() && structural_eq(self.reflect(), self.as_any(), other)
   }

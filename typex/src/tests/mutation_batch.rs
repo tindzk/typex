@@ -383,3 +383,60 @@ fn mutation_batch_reports_out_of_bounds_move() {
   ));
   assert_eq!(items, vec![1, 2, 3]);
 }
+
+#[test]
+fn mutation_batch_reports_shape_mismatch_for_a_container_of_another_kind() {
+  let mut map = Some(BTreeMap::from([(String::from("keep"), 1_u8)]));
+  let batch = MutationBatch::from([PatchOperation::insert_key([], "new", 2_u8)]);
+
+  let error = batch.commit(&mut map).unwrap_err();
+
+  assert!(matches!(
+    error,
+    CommitError::OperationFailed {
+      index: 0,
+      error: CommitOperationError::ShapeMismatch {
+        expected: ValueKind::Map,
+        actual: ValueKind::Option,
+        ..
+      },
+    }
+  ));
+  assert_eq!(map, Some(BTreeMap::from([(String::from("keep"), 1_u8)])));
+}
+
+#[test]
+fn mutation_batch_reports_unsupported_edits_of_a_sequence_without_mutable_structure() {
+  let mut set = BTreeSet::from([1_u8, 2]);
+  for (operation, kind) in [
+    (
+      PatchOperation::push_item([], 3_u8),
+      PatchOperationKind::PushItem,
+    ),
+    (
+      PatchOperation::insert_item([], 0, 3_u8),
+      PatchOperationKind::InsertItem,
+    ),
+    (
+      PatchOperation::remove_item([], 0),
+      PatchOperationKind::RemoveItem,
+    ),
+    (
+      PatchOperation::move_item([], 0, 2),
+      PatchOperationKind::MoveItem,
+    ),
+  ] {
+    let error = MutationBatch::from([operation])
+      .commit(&mut set)
+      .unwrap_err();
+
+    assert!(matches!(
+      error,
+      CommitError::OperationFailed {
+        index: 0,
+        error: CommitOperationError::Unsupported { operation, .. },
+      } if operation == kind
+    ));
+  }
+  assert_eq!(set, BTreeSet::from([1, 2]));
+}
