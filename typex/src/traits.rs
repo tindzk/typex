@@ -454,24 +454,6 @@ impl dyn MetaMut + '_ {
     query.resolve(ObjectRefMut::new(self))
   }
 
-  /// Returns the mutable shape of the innermost contained value, looking
-  /// through options. An option without a value reports
-  /// [`ReflectMut::Opaque`].
-  // A loop rather than recursion keeps this function inlinable.
-  #[inline]
-  fn reflect_mut_through_option(&mut self) -> ReflectMut<'_> {
-    let mut shape = self.reflect_mut();
-    loop {
-      match shape {
-        ReflectMut::Option(option) => match option.value_mut() {
-          Some(inner) => shape = inner.inner.reflect_mut(),
-          None => return ReflectMut::Opaque,
-        },
-        shape => return shape,
-      }
-    }
-  }
-
   /// Returns a mutable field by name.
   ///
   /// Options forward the lookup to their contained value.
@@ -500,8 +482,12 @@ impl dyn MetaMut + '_ {
   ///
   /// Options forward the insertion to their contained value.
   pub fn insert_key(&mut self, key: &str, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-    match self.reflect_mut_through_option() {
+    match self.reflect_mut() {
       ReflectMut::Map(map) => map.insert_key(key, value),
+      ReflectMut::Option(option) => match option.value_mut() {
+        Some(inner) => inner.inner.insert_key(key, value),
+        None => Err(value),
+      },
       _ => Err(value),
     }
   }
@@ -529,8 +515,9 @@ impl dyn MetaMut + '_ {
   ///
   /// Options forward the removal to their contained value.
   pub fn remove_key(&mut self, key: &str) -> Option<Object> {
-    match self.reflect_mut_through_option() {
+    match self.reflect_mut() {
       ReflectMut::Map(value) => value.remove_key(key),
+      ReflectMut::Option(value) => value.value_mut()?.inner.remove_key(key),
       _ => None,
     }
   }

@@ -77,7 +77,8 @@ fn reflective_methods_remain_available_through_objects() {
     terms: vec![String::from("a"), String::from("b")],
   });
   assert_eq!(object.field("terms").unwrap().len(), Some(2));
-  assert_eq!((&query.terms as &dyn Meta).is_empty(), Some(false));
+  let terms: &dyn Meta = &query.terms;
+  assert_eq!(terms.is_empty(), Some(false));
 
   ObjectRefMut::new(&mut query)
     .field_mut("terms")

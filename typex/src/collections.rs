@@ -102,7 +102,7 @@ macro_rules! impl_meta_forward {
         other
           .as_any()
           .downcast_ref::<Self>()
-          .is_some_and(|other| (**self).eq_dyn(&**other as &dyn Meta))
+          .is_some_and(|other| (**self).eq_dyn(&**other))
       }
 
       fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -291,7 +291,7 @@ macro_rules! impl_seq_meta {
       }
 
       fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-        self.get(index).map(|value| ObjectRef::new(value as &dyn Meta))
+        self.get(index).map(|value| ObjectRef::new(value))
       }
     }
   };
@@ -313,7 +313,7 @@ macro_rules! impl_seq_meta {
       }
 
       fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-        self.get(index).map(|value| ObjectRef::new(value as &dyn Meta))
+        self.get(index).map(|value| ObjectRef::new(value))
       }
     }
   };
@@ -358,7 +358,7 @@ macro_rules! impl_seq_meta {
       }
 
       fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-        self.iter().nth(index).map(|value| ObjectRef::new(value as &dyn Meta))
+        self.iter().nth(index).map(|value| ObjectRef::new(value))
       }
     }
   };
@@ -427,7 +427,7 @@ macro_rules! impl_indexed_meta_mut {
       fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
         self
           .$access_mut(index)
-          .map(|value| ObjectRefMut::new(value as &mut dyn MetaMut))
+          .map(|value| ObjectRefMut::new(value))
       }
 
       fn push_item(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
@@ -435,7 +435,7 @@ macro_rules! impl_indexed_meta_mut {
         self.$push(value);
 
         Ok(ObjectRefMut::new(
-          self.$last().expect("just pushed") as &mut dyn MetaMut
+          self.$last().expect("just pushed")
         ))
       }
 
@@ -448,7 +448,7 @@ macro_rules! impl_indexed_meta_mut {
         self.$insert(index, value);
 
         Ok(ObjectRefMut::new(
-          self.$access_mut(index).expect("just inserted") as &mut dyn MetaMut,
+          self.$access_mut(index).expect("just inserted"),
         ))
       }
 
@@ -501,9 +501,7 @@ where
   T: MetaMut + 'static,
 {
   fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
-    self
-      .get_mut(index)
-      .map(|value| ObjectRefMut::new(value as &mut dyn MetaMut))
+    self.get_mut(index).map(|value| ObjectRefMut::new(value))
   }
 }
 
@@ -550,16 +548,14 @@ where
     self
       .iter_mut()
       .nth(index)
-      .map(|value| ObjectRefMut::new(value as &mut dyn MetaMut))
+      .map(|value| ObjectRefMut::new(value))
   }
 
   fn push_item(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
     let value = into_typed(value)?;
     self.push_back(value);
 
-    Ok(ObjectRefMut::new(
-      self.back_mut().expect("just pushed") as &mut dyn MetaMut
-    ))
+    Ok(ObjectRefMut::new(self.back_mut().expect("just pushed")))
   }
 
   fn insert_item(&mut self, index: usize, value: Object) -> Result<ObjectRefMut<'_>, Object> {
@@ -573,7 +569,7 @@ where
     self.append(&mut tail);
 
     Ok(ObjectRefMut::new(
-      self.iter_mut().nth(index).expect("just inserted") as &mut dyn MetaMut,
+      self.iter_mut().nth(index).expect("just inserted"),
     ))
   }
 
@@ -652,11 +648,7 @@ where
   T: Meta + 'static,
 {
   fn reflect(&self) -> Reflect<'_> {
-    Reflect::Option(
-      self
-        .as_ref()
-        .map(|value| ObjectRef::new(value as &dyn Meta)),
-    )
+    Reflect::Option(self.as_ref().map(|value| ObjectRef::new(value)))
   }
 
   fn field_dyn(&self, name: &str) -> Option<ObjectRef<'_>> {
@@ -708,9 +700,7 @@ where
   T: MetaMut + 'static,
 {
   fn value_mut(&mut self) -> Option<ObjectRefMut<'_>> {
-    self
-      .as_mut()
-      .map(|value| ObjectRefMut::new(value as &mut dyn MetaMut))
+    self.as_mut().map(|value| ObjectRefMut::new(value))
   }
 
   fn insert_value(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
@@ -719,7 +709,7 @@ where
     }
 
     let value = into_typed(value)?;
-    Ok(ObjectRefMut::new(self.insert(value) as &mut dyn MetaMut))
+    Ok(ObjectRefMut::new(self.insert(value)))
   }
 
   fn take_value(&mut self) -> Option<Object> {
@@ -752,8 +742,8 @@ where
 {
   fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
     match (self, name) {
-      (Ok(value), "Ok") => Some(ObjectRef::new(value as &dyn Meta)),
-      (Err(error), "Err") => Some(ObjectRef::new(error as &dyn Meta)),
+      (Ok(value), "Ok") => Some(ObjectRef::new(value)),
+      (Err(error), "Err") => Some(ObjectRef::new(error)),
       _ => None,
     }
   }
@@ -767,8 +757,8 @@ where
 
   fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
     match (self, index) {
-      (Ok(value), 0) => Some(ObjectRef::new(value as &dyn Meta)),
-      (Err(error), 0) => Some(ObjectRef::new(error as &dyn Meta)),
+      (Ok(value), 0) => Some(ObjectRef::new(value)),
+      (Err(error), 0) => Some(ObjectRef::new(error)),
       _ => None,
     }
   }
@@ -801,16 +791,16 @@ where
 {
   fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
     match (self, name) {
-      (Ok(value), "Ok") => Some(ObjectRefMut::new(value as &mut dyn MetaMut)),
-      (Err(error), "Err") => Some(ObjectRefMut::new(error as &mut dyn MetaMut)),
+      (Ok(value), "Ok") => Some(ObjectRefMut::new(value)),
+      (Err(error), "Err") => Some(ObjectRefMut::new(error)),
       _ => None,
     }
   }
 
   fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
     match (self, index) {
-      (Ok(value), 0) => Some(ObjectRefMut::new(value as &mut dyn MetaMut)),
-      (Err(error), 0) => Some(ObjectRefMut::new(error as &mut dyn MetaMut)),
+      (Ok(value), 0) => Some(ObjectRefMut::new(value)),
+      (Err(error), 0) => Some(ObjectRefMut::new(error)),
       _ => None,
     }
   }
@@ -842,7 +832,7 @@ macro_rules! impl_tuple_meta {
       {
         fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
           match name {
-            $($name => Some(ObjectRef::new(&self.$idx as &dyn Meta)),)+
+            $($name => Some(ObjectRef::new(&self.$idx)),)+
             _ => None,
           }
         }
@@ -853,7 +843,7 @@ macro_rules! impl_tuple_meta {
 
         fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
           match index {
-            $($idx => Some(ObjectRef::new(&self.$idx as &dyn Meta)),)+
+            $($idx => Some(ObjectRef::new(&self.$idx)),)+
             _ => None,
           }
         }
@@ -884,14 +874,14 @@ macro_rules! impl_tuple_meta {
       {
         fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
           match name {
-            $($name => Some(ObjectRefMut::new(&mut self.$idx as &mut dyn MetaMut)),)+
+            $($name => Some(ObjectRefMut::new(&mut self.$idx)),)+
             _ => None,
           }
         }
 
         fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
           match index {
-            $($idx => Some(ObjectRefMut::new(&mut self.$idx as &mut dyn MetaMut)),)+
+            $($idx => Some(ObjectRefMut::new(&mut self.$idx)),)+
             _ => None,
           }
         }
@@ -949,7 +939,7 @@ macro_rules! impl_map_meta {
       }
 
       fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
-        $lookup(self, key).map(|value| ObjectRef::new(value as &dyn Meta))
+        $lookup(self, key).map(|value| ObjectRef::new(value))
       }
 
       fn keys(&self) -> Option<Vec<String>> {
@@ -958,7 +948,7 @@ macro_rules! impl_map_meta {
 
       fn visit_entries(&self, visitor: &mut MapEntryVisitor<'_>) {
         for (key, value) in self {
-          if !visitor(AnyRef::new(key), ObjectRef::new(value as &dyn Meta)) {
+          if !visitor(AnyRef::new(key), ObjectRef::new(value)) {
             break;
           }
         }
@@ -968,7 +958,7 @@ macro_rules! impl_map_meta {
 }
 
 /// Compares keys via `K`'s own `Ord`/`PartialEq` and values via
-/// [Meta::eq_dyn], bypassing [Meta::keys]/[Meta::key]'s string round-trip.
+/// [Meta::eq_dyn], bypassing `keys`/`key`'s string round-trip.
 /// Both maps iterate in the same `K`-sorted order, so this is a single
 /// zipped pass rather than the generic default's per-key string lookup,
 /// and it works for any `K`, not just string-like keys.
@@ -985,13 +975,11 @@ where
     && this
       .iter()
       .zip(other)
-      .all(|((key, value), (other_key, other_value))| {
-        key == other_key && (value as &dyn Meta).eq_dyn(other_value as &dyn Meta)
-      })
+      .all(|((key, value), (other_key, other_value))| key == other_key && value.eq_dyn(other_value))
 }
 
 /// Compares native keys with `Eq`/`Hash` and values with [Meta::eq_dyn].
-/// This avoids [Meta::keys]/[Meta::key]'s string conversion and is
+/// This avoids `keys`/`key`'s string conversion and is
 /// independent of `HashMap` iteration order. Each key lookup takes `O(1)`
 /// time on average, so equality takes `O(n)` time on average.
 #[cfg(feature = "std")]
@@ -1009,7 +997,7 @@ where
     && this.iter().all(|(key, value)| {
       other
         .get(key)
-        .is_some_and(|other_value| (value as &dyn Meta).eq_dyn(other_value as &dyn Meta))
+        .is_some_and(|other_value| value.eq_dyn(other_value))
     })
 }
 
@@ -1027,7 +1015,7 @@ macro_rules! impl_typed_map_access {
       fn key_typed(&self, key: &K) -> Option<ObjectRef<'_>> {
         self
           .get(key)
-          .map(|value| ObjectRef::new(value as &dyn Meta))
+          .map(|value| ObjectRef::new(value))
       }
     }
 
@@ -1038,7 +1026,7 @@ macro_rules! impl_typed_map_access {
       fn key_typed_mut(&mut self, key: &K) -> Option<ObjectRefMut<'_>> {
         self
           .get_mut(key)
-          .map(|value| ObjectRefMut::new(value as &mut dyn MetaMut))
+          .map(|value| ObjectRefMut::new(value))
       }
     }
   };
@@ -1077,7 +1065,7 @@ macro_rules! impl_map_mut {
       $($bounds)*
     {
       fn key_mut(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
-        $lookup(self, key).map(|value| ObjectRefMut::new(value as &mut dyn MetaMut))
+        $lookup(self, key).map(|value| ObjectRefMut::new(value))
       }
 
       fn insert_key(&mut self, key: &str, value: Object) -> Result<ObjectRefMut<'_>, Object> {

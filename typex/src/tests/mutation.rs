@@ -130,7 +130,7 @@ fn field_path_mut_traverses_and_mutates_a_nested_value() {
     label: Text("before"),
   };
 
-  let mut object = ObjectRefMut::new(&mut pair as &mut dyn MetaMut);
+  let mut object = ObjectRefMut::new(&mut pair);
   let value = object
     .field_path_mut(&[PathSegment::Field("label")])
     .unwrap()
@@ -334,11 +334,7 @@ fn box_meta_mut_forwards_to_inner_value() {
 fn set_and_heap_meta_mut_have_no_structural_mutation_but_support_to_mut() {
   let mut set = BTreeSet::from([Number(1), Number(2)]);
   assert!(set.dyn_meta_mut().item_mut(0).is_none());
-  assert!(
-    (&mut set as &mut dyn MetaMut)
-      .to_mut::<BTreeSet<Number>>()
-      .is_some()
-  );
+  assert!(set.dyn_meta_mut().to_mut::<BTreeSet<Number>>().is_some());
   set.insert(Number(3));
   assert_eq!(set.len(), 3);
 

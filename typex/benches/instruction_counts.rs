@@ -200,7 +200,7 @@ impl MapAccess for EntryMap {
       .entries
       .iter()
       .find(|(entry_key, _)| entry_key == key)
-      .map(|(_, value)| ObjectRef::new(value as &dyn Meta))
+      .map(|(_, value)| ObjectRef::new(value))
   }
 
   fn keys(&self) -> Option<Vec<String>> {
@@ -209,7 +209,7 @@ impl MapAccess for EntryMap {
 
   fn visit_entries(&self, visitor: &mut MapEntryVisitor<'_>) {
     for (key, value) in &self.entries {
-      if !visitor(AnyRef::new(key), ObjectRef::new(value as &dyn Meta)) {
+      if !visitor(AnyRef::new(key), ObjectRef::new(value)) {
         break;
       }
     }

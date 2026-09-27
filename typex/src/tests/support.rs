@@ -145,8 +145,8 @@ impl Meta for Pair {
 impl StructAccess for Pair {
   fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
     match name {
-      "count" => Some(ObjectRef::new(&self.count as &dyn Meta)),
-      "label" => Some(ObjectRef::new(&self.label as &dyn Meta)),
+      "count" => Some(ObjectRef::new(&self.count)),
+      "label" => Some(ObjectRef::new(&self.label)),
       _ => None,
     }
   }
@@ -171,8 +171,8 @@ impl MetaMut for Pair {
 impl StructAccessMut for Pair {
   fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
     match name {
-      "count" => Some(ObjectRefMut::new(&mut self.count as &mut dyn MetaMut)),
-      "label" => Some(ObjectRefMut::new(&mut self.label as &mut dyn MetaMut)),
+      "count" => Some(ObjectRefMut::new(&mut self.count)),
+      "label" => Some(ObjectRefMut::new(&mut self.label)),
       _ => None,
     }
   }
@@ -220,7 +220,7 @@ impl MapAccess for IndexMap {
 
   fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
     let &index = self.by_key.get(key)?;
-    Some(ObjectRef::new(&self.items[index].1 as &dyn Meta))
+    Some(ObjectRef::new(&self.items[index].1))
   }
 
   fn keys(&self) -> Option<Vec<String>> {
@@ -229,7 +229,7 @@ impl MapAccess for IndexMap {
 
   fn visit_entries(&self, visitor: &mut MapEntryVisitor<'_>) {
     for (key, value) in &self.items {
-      if !visitor(AnyRef::new(key), ObjectRef::new(value as &dyn Meta)) {
+      if !visitor(AnyRef::new(key), ObjectRef::new(value)) {
         break;
       }
     }
@@ -239,7 +239,7 @@ impl MapAccess for IndexMap {
     self
       .items
       .get(index)
-      .map(|(_, value)| ObjectRef::new(value as &dyn Meta))
+      .map(|(_, value)| ObjectRef::new(value))
   }
 
   fn access_kind(&self) -> AccessKind {
@@ -272,10 +272,7 @@ impl SequenceAccess for PushOnly {
   }
 
   fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-    self
-      .values
-      .get(index)
-      .map(|value| ObjectRef::new(value as &dyn Meta))
+    self.values.get(index).map(|value| ObjectRef::new(value))
   }
 }
 
@@ -332,10 +329,10 @@ impl Meta for PatchConfig {
 impl StructAccess for PatchConfig {
   fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
     match name {
-      "enabled" => Some(ObjectRef::new(&self.enabled as &dyn Meta)),
-      "labels" => Some(ObjectRef::new(&self.labels as &dyn Meta)),
-      "profile" => Some(ObjectRef::new(&self.profile as &dyn Meta)),
-      "items" => Some(ObjectRef::new(&self.items as &dyn Meta)),
+      "enabled" => Some(ObjectRef::new(&self.enabled)),
+      "labels" => Some(ObjectRef::new(&self.labels)),
+      "profile" => Some(ObjectRef::new(&self.profile)),
+      "items" => Some(ObjectRef::new(&self.items)),
       _ => None,
     }
   }
@@ -360,10 +357,10 @@ impl MetaMut for PatchConfig {
 impl StructAccessMut for PatchConfig {
   fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
     match name {
-      "enabled" => Some(ObjectRefMut::new(&mut self.enabled as &mut dyn MetaMut)),
-      "labels" => Some(ObjectRefMut::new(&mut self.labels as &mut dyn MetaMut)),
-      "profile" => Some(ObjectRefMut::new(&mut self.profile as &mut dyn MetaMut)),
-      "items" => Some(ObjectRefMut::new(&mut self.items as &mut dyn MetaMut)),
+      "enabled" => Some(ObjectRefMut::new(&mut self.enabled)),
+      "labels" => Some(ObjectRefMut::new(&mut self.labels)),
+      "profile" => Some(ObjectRefMut::new(&mut self.profile)),
+      "items" => Some(ObjectRefMut::new(&mut self.items)),
       _ => None,
     }
   }
@@ -396,10 +393,7 @@ impl SequenceAccess for RejectInsert {
   }
 
   fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-    self
-      .values
-      .get(index)
-      .map(|value| ObjectRef::new(value as &dyn Meta))
+    self.values.get(index).map(|value| ObjectRef::new(value))
   }
 }
 
@@ -420,7 +414,7 @@ impl SequenceAccessMut for RejectInsert {
     self
       .values
       .get_mut(index)
-      .map(|value| ObjectRefMut::new(value as &mut dyn MetaMut))
+      .map(|value| ObjectRefMut::new(value))
   }
 
   fn move_item(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {

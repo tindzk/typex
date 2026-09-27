@@ -10,10 +10,10 @@ fn leaf_eq_dyn_compares_by_value_and_type() {
   let c = Object::new(Number(8));
   let d = Object::new(Text("7"));
 
-  assert!(a.as_ref() as &dyn Meta == b.as_ref() as &dyn Meta);
-  assert!(a.as_ref() as &dyn Meta != c.as_ref() as &dyn Meta);
+  assert!(*a == *b);
+  assert!(*a != *c);
   // Different concrete types are never equal, even with "matching" data.
-  assert!(a.as_ref() as &dyn Meta != d.as_ref() as &dyn Meta);
+  assert!(*a != *d);
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn object_ref_mut_eq_compares_structurally() {
 #[test]
 fn nan_is_never_equal_to_itself() {
   let nan = f64::NAN;
-  assert!(!(&nan as &dyn Meta == &nan as &dyn Meta));
+  assert!(!(nan.dyn_meta() == nan.dyn_meta()));
 }
 
 #[test]
@@ -51,9 +51,9 @@ fn struct_eq_dyn_compares_fields_structurally() {
     label: Text("y"),
   };
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
-  assert!(&a as &dyn Meta != &different_count as &dyn Meta);
-  assert!(&a as &dyn Meta != &different_label as &dyn Meta);
+  assert!(a.dyn_meta() == b.dyn_meta());
+  assert!(a.dyn_meta() != different_count.dyn_meta());
+  assert!(a.dyn_meta() != different_label.dyn_meta());
 }
 
 #[test]
@@ -63,9 +63,9 @@ fn vec_eq_dyn_compares_items_pairwise() {
   let shorter = vec![Number(1)];
   let different_element = vec![Number(1), Number(3)];
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
-  assert!(&a as &dyn Meta != &shorter as &dyn Meta);
-  assert!(&a as &dyn Meta != &different_element as &dyn Meta);
+  assert!(a.dyn_meta() == b.dyn_meta());
+  assert!(a.dyn_meta() != shorter.dyn_meta());
+  assert!(a.dyn_meta() != different_element.dyn_meta());
 }
 
 #[test]
@@ -76,10 +76,10 @@ fn option_eq_dyn_compares_inner_value_or_absence() {
   let none: Option<Number> = None;
   let none_too: Option<Number> = None;
 
-  assert!(&some_a as &dyn Meta == &some_b as &dyn Meta);
-  assert!(&some_a as &dyn Meta != &some_other as &dyn Meta);
-  assert!(&none as &dyn Meta == &none_too as &dyn Meta);
-  assert!(&some_a as &dyn Meta != &none as &dyn Meta);
+  assert!(some_a.dyn_meta() == some_b.dyn_meta());
+  assert!(some_a.dyn_meta() != some_other.dyn_meta());
+  assert!(none.dyn_meta() == none_too.dyn_meta());
+  assert!(some_a.dyn_meta() != none.dyn_meta());
 }
 
 #[test]
@@ -88,8 +88,8 @@ fn result_eq_dyn_distinguishes_variants() {
   let ok_b: Result<Number, Text> = Ok(Number(7));
   let err: Result<Number, Text> = Err(Text("boom"));
 
-  assert!(&ok_a as &dyn Meta == &ok_b as &dyn Meta);
-  assert!(&ok_a as &dyn Meta != &err as &dyn Meta);
+  assert!(ok_a.dyn_meta() == ok_b.dyn_meta());
+  assert!(ok_a.dyn_meta() != err.dyn_meta());
 }
 
 #[test]
@@ -108,13 +108,13 @@ fn map_eq_dyn_compares_string_keyed_entries_as_a_set() {
     (String::from("b"), Number(9)),
   ]);
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
-  assert!(&a as &dyn Meta != &different_value as &dyn Meta);
+  assert!(a.dyn_meta() == b.dyn_meta());
+  assert!(a.dyn_meta() != different_value.dyn_meta());
 }
 
 #[test]
 fn map_eq_dyn_compares_non_string_keyed_maps_via_native_key_equality() {
-  // `Meta::keys()`/`key()` only work for string-like keys, but `BTreeMap`'s
+  // `keys()`/`key()` only work for string-like keys, but `BTreeMap`'s
   // `eq_dyn` override compares `K` natively instead of round-tripping
   // through them, so non-string keys still compare correctly.
   let a = BTreeMap::from([(7usize, Number(1))]);
@@ -122,9 +122,9 @@ fn map_eq_dyn_compares_non_string_keyed_maps_via_native_key_equality() {
   let different_key = BTreeMap::from([(8usize, Number(1))]);
   let different_value = BTreeMap::from([(7usize, Number(2))]);
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
-  assert!(&a as &dyn Meta != &different_key as &dyn Meta);
-  assert!(&a as &dyn Meta != &different_value as &dyn Meta);
+  assert!(a.dyn_meta() == b.dyn_meta());
+  assert!(a.dyn_meta() != different_key.dyn_meta());
+  assert!(a.dyn_meta() != different_value.dyn_meta());
 }
 
 #[cfg(feature = "std")]
@@ -148,9 +148,9 @@ fn hash_map_eq_dyn_compares_via_native_key_equality() {
   ]);
   let fewer_entries = HashMap::from([(String::from("a"), Number(1))]);
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
-  assert!(&a as &dyn Meta != &different_value as &dyn Meta);
-  assert!(&a as &dyn Meta != &fewer_entries as &dyn Meta);
+  assert!(a.dyn_meta() == b.dyn_meta());
+  assert!(a.dyn_meta() != different_value.dyn_meta());
+  assert!(a.dyn_meta() != fewer_entries.dyn_meta());
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn mismatched_wrapper_types_are_not_equal() {
   let boxed: Box<Number> = Box::new(Number(7));
   let plain = Number(7);
 
-  assert!(&boxed as &dyn Meta != &plain as &dyn Meta);
+  assert!(boxed.dyn_meta() != plain.dyn_meta());
 }
 
 /// Hand-written struct with zero exposed fields, standing in for a unit struct
@@ -196,7 +196,7 @@ fn struct_eq_dyn_treats_zero_exposed_fields_as_equal_not_opaque() {
   let a = EmptyRecord;
   let b = EmptyRecord;
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
+  assert!(a.dyn_meta() == b.dyn_meta());
 }
 
 /// Hand-written struct that advertises a field without exposing its value.
@@ -232,7 +232,7 @@ fn struct_eq_dyn_rejects_unresolved_fields() {
   let a = UnresolvedFieldRecord;
   let b = UnresolvedFieldRecord;
 
-  assert!(&a as &dyn Meta != &b as &dyn Meta);
+  assert!(a.dyn_meta() != b.dyn_meta());
 }
 
 /// Hand-written map without an `eq_dyn` override. Exercises the default
@@ -282,7 +282,7 @@ impl MapAccess for EntryMap {
       .entries
       .iter()
       .find(|(k, _)| k == key)
-      .map(|(_, value)| ObjectRef::new(value as &dyn Meta))
+      .map(|(_, value)| ObjectRef::new(value))
   }
 
   fn keys(&self) -> Option<Vec<String>> {
@@ -292,7 +292,7 @@ impl MapAccess for EntryMap {
   fn visit_entries(&self, visitor: &mut MapEntryVisitor<'_>) {
     for (key, value) in &self.entries {
       self.visits.set(self.visits.get() + 1);
-      if !visitor(AnyRef::new(key), ObjectRef::new(value as &dyn Meta)) {
+      if !visitor(AnyRef::new(key), ObjectRef::new(value)) {
         break;
       }
     }
@@ -305,7 +305,7 @@ fn map_entries_eq_dyn_fallback_compares_entries_as_a_set() {
   // Same entries, different order.
   let b = EntryMap::new(&[("b", 2), ("a", 1)]);
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
+  assert!(a.dyn_meta() == b.dyn_meta());
 }
 
 #[test]
@@ -313,8 +313,8 @@ fn map_entries_eq_dyn_fallback_rejects_missing_key() {
   let a = EntryMap::new(&[("a", 1), ("b", 2)]);
   let fewer_entries = EntryMap::new(&[("a", 1)]);
 
-  assert!(&a as &dyn Meta != &fewer_entries as &dyn Meta);
-  assert!(&fewer_entries as &dyn Meta != &a as &dyn Meta);
+  assert!(a.dyn_meta() != fewer_entries.dyn_meta());
+  assert!(fewer_entries.dyn_meta() != a.dyn_meta());
 }
 
 #[test]
@@ -322,7 +322,7 @@ fn map_entries_eq_dyn_fallback_short_circuits_on_first_mismatch() {
   let a = EntryMap::new(&[("a", 1), ("b", 2), ("c", 3)]);
   let different_first_value = EntryMap::new(&[("a", 9), ("b", 2), ("c", 3)]);
 
-  assert!(&a as &dyn Meta != &different_first_value as &dyn Meta);
+  assert!(a.dyn_meta() != different_first_value.dyn_meta());
   // Only the first entry needed visiting before the mismatch broke the loop.
   assert_eq!(a.visits.get(), 1);
 }
@@ -332,7 +332,7 @@ fn map_entries_eq_dyn_fallback_rejects_different_lengths_without_traversal() {
   let a = EntryMap::new(&[("a", 1), ("b", 2)]);
   let larger = EntryMap::new(&[("a", 1), ("b", 2), ("c", 3), ("d", 4), ("e", 5)]);
 
-  assert!(&a as &dyn Meta != &larger as &dyn Meta);
+  assert!(a.dyn_meta() != larger.dyn_meta());
   assert_eq!(a.visits.get(), 0);
   assert_eq!(larger.visits.get(), 0);
 }
@@ -342,7 +342,7 @@ fn map_entries_eq_dyn_fallback_uses_len_to_skip_other_traversal() {
   let a = EntryMap::new(&[("a", 1), ("b", 2)]);
   let b = EntryMap::new(&[("b", 2), ("a", 1)]);
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
+  assert!(a.dyn_meta() == b.dyn_meta());
   assert_eq!(a.visits.get(), 2);
   assert_eq!(b.visits.get(), 0);
 }
@@ -387,7 +387,7 @@ impl MapAccess for StaticKeyEntryMap {
       .entries
       .iter()
       .find(|(entry_key, _)| *entry_key == key)
-      .map(|(_, value)| ObjectRef::new(value as &dyn Meta))
+      .map(|(_, value)| ObjectRef::new(value))
   }
 
   fn keys(&self) -> Option<Vec<String>> {
@@ -396,7 +396,7 @@ impl MapAccess for StaticKeyEntryMap {
 
   fn visit_entries(&self, visitor: &mut MapEntryVisitor<'_>) {
     for (key, value) in &self.entries {
-      if !visitor(AnyRef::new(key), ObjectRef::new(value as &dyn Meta)) {
+      if !visitor(AnyRef::new(key), ObjectRef::new(value)) {
         break;
       }
     }
@@ -408,7 +408,7 @@ fn map_entries_eq_dyn_fallback_accepts_static_str_keys() {
   let a = StaticKeyEntryMap::new(&[("a", 1), ("b", 2)]);
   let b = StaticKeyEntryMap::new(&[("b", 2), ("a", 1)]);
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
+  assert!(a.dyn_meta() == b.dyn_meta());
 }
 
 #[derive(Debug)]
@@ -456,7 +456,7 @@ impl MapAccess for NumericEntryMap {
 
   fn visit_entries(&self, visitor: &mut MapEntryVisitor<'_>) {
     for (key, value) in &self.entries {
-      if !visitor(AnyRef::new(key), ObjectRef::new(value as &dyn Meta)) {
+      if !visitor(AnyRef::new(key), ObjectRef::new(value)) {
         break;
       }
     }
@@ -468,7 +468,7 @@ fn map_entries_eq_dyn_fallback_rejects_non_string_keys() {
   let a = NumericEntryMap::new(&[(1, 7)]);
   let b = NumericEntryMap::new(&[(1, 7)]);
 
-  assert!(&a as &dyn Meta != &b as &dyn Meta);
+  assert!(a.dyn_meta() != b.dyn_meta());
 }
 
 #[test]

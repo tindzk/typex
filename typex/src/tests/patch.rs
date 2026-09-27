@@ -27,10 +27,7 @@ impl SequenceAccess for RejectMiddleInsert {
   }
 
   fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-    self
-      .values
-      .get(index)
-      .map(|value| ObjectRef::new(value as &dyn Meta))
+    self.values.get(index).map(|value| ObjectRef::new(value))
   }
 }
 
@@ -55,7 +52,7 @@ impl SequenceAccessMut for RejectMiddleInsert {
     self
       .values
       .get_mut(index)
-      .map(|value| ObjectRefMut::new(value as &mut dyn MetaMut))
+      .map(|value| ObjectRefMut::new(value))
   }
 
   fn insert_item(&mut self, index: usize, value: Object) -> Result<ObjectRefMut<'_>, Object> {
@@ -185,8 +182,7 @@ fn patch_operation_kind_display_names_are_consistent() {
 fn move_item_out_of_bounds_leaves_sequence_unchanged() {
   let mut items = vec![1_u8, 2_u8, 3_u8];
 
-  let result =
-    ObjectRefMut::new(&mut items as &mut dyn MetaMut).apply([PatchOperation::move_item([], 0, 99)]);
+  let result = ObjectRefMut::new(&mut items).apply([PatchOperation::move_item([], 0, 99)]);
 
   assert_eq!(
     result,

@@ -347,7 +347,7 @@ struct EmptyState;
 
 let a = EmptyState;
 let b = EmptyState;
-assert!(&a as &dyn Meta == &b as &dyn Meta);
+assert!(a.eq_dyn(&b));
 ```
 
 ### Paths
@@ -880,7 +880,7 @@ impl SequenceAccess for Ring {
 
   fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
     let len = self.values.len();
-    (index < len).then(|| ObjectRef::new(&self.values[(self.start + index) % len] as &dyn Meta))
+    (index < len).then(|| ObjectRef::new(&self.values[(self.start + index) % len]))
   }
 }
 

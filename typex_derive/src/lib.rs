@@ -500,7 +500,7 @@ fn eq_dyn_fn(body: TokenStream2) -> TokenStream2 {
 /// Returns `true` followed by an `eq_dyn` comparison for each pair of fields.
 fn fields_eq(pairs: impl Iterator<Item = (TokenStream2, TokenStream2)>) -> TokenStream2 {
   let comparisons = pairs.map(|(left, right)| {
-    quote! { && ::typex::Meta::eq_dyn(#left, #right as &dyn ::typex::Meta) }
+    quote! { && ::typex::Meta::eq_dyn(#left, #right) }
   });
   quote! { true #(#comparisons)* }
 }
@@ -639,7 +639,7 @@ fn struct_meta(data: &DataStruct) -> TokenStream2 {
       let arms = members.iter().enumerate().map(|(index, member)| {
         quote! {
           #index => ::core::option::Option::Some(
-            ::typex::ObjectRef::new(&self.#member as &dyn ::typex::Meta),
+            ::typex::ObjectRef::new(&self.#member),
           )
         }
       });
@@ -659,7 +659,7 @@ fn struct_meta(data: &DataStruct) -> TokenStream2 {
     ) -> ::core::option::Option<::typex::ObjectRef<'_>> {
       match __typex_name {
         #(#keys => ::core::option::Option::Some(
-          ::typex::ObjectRef::new(&self.#members as &dyn ::typex::Meta),
+          ::typex::ObjectRef::new(&self.#members),
         ),)*
         _ => ::core::option::Option::None,
       }
@@ -705,7 +705,7 @@ fn struct_meta_mut(data: &DataStruct) -> TokenStream2 {
       .map(|(index, member)| {
         quote! {
           #index => ::core::option::Option::Some(
-            ::typex::ObjectRefMut::new(&mut self.#member as &mut dyn ::typex::MetaMut),
+            ::typex::ObjectRefMut::new(&mut self.#member),
           )
         }
       })
@@ -720,7 +720,7 @@ fn struct_meta_mut(data: &DataStruct) -> TokenStream2 {
     ) -> ::core::option::Option<::typex::ObjectRefMut<'_>> {
       match __typex_name {
         #(#keys => ::core::option::Option::Some(
-          ::typex::ObjectRefMut::new(&mut self.#members as &mut dyn ::typex::MetaMut),
+          ::typex::ObjectRefMut::new(&mut self.#members),
         ),)*
         _ => ::core::option::Option::None,
       }
@@ -764,10 +764,10 @@ fn enum_meta(data: &DataEnum) -> TokenStream2 {
       quote! {
         #pattern => match __typex_name {
           #variant_name => ::core::option::Option::Some(
-            ::typex::ObjectRef::new(self as &dyn ::typex::Meta),
+            ::typex::ObjectRef::new(self),
           ),
           #(#keys => ::core::option::Option::Some(
-            ::typex::ObjectRef::new(#bindings as &dyn ::typex::Meta),
+            ::typex::ObjectRef::new(#bindings),
           ),)*
           _ => ::core::option::Option::None,
         }
@@ -801,7 +801,7 @@ fn enum_meta(data: &DataEnum) -> TokenStream2 {
         quote! {
           #pattern => match __typex_index {
             #(#indices => ::core::option::Option::Some(
-              ::typex::ObjectRef::new(#bindings as &dyn ::typex::Meta),
+              ::typex::ObjectRef::new(#bindings),
             ),)*
             _ => ::core::option::Option::None,
           }
@@ -884,7 +884,7 @@ fn enum_meta_mut(data: &DataEnum) -> TokenStream2 {
       quote! {
         #pattern => match __typex_name {
           #(#keys => ::core::option::Option::Some(
-            ::typex::ObjectRefMut::new(#bindings as &mut dyn ::typex::MetaMut),
+            ::typex::ObjectRefMut::new(#bindings),
           ),)*
           _ => ::core::option::Option::None,
         }
@@ -903,7 +903,7 @@ fn enum_meta_mut(data: &DataEnum) -> TokenStream2 {
         quote! {
           #pattern => match __typex_index {
             #(#indices => ::core::option::Option::Some(
-              ::typex::ObjectRefMut::new(#bindings as &mut dyn ::typex::MetaMut),
+              ::typex::ObjectRefMut::new(#bindings),
             ),)*
             _ => ::core::option::Option::None,
           }
@@ -927,7 +927,7 @@ fn enum_meta_mut(data: &DataEnum) -> TokenStream2 {
       let __typex_variant: &'static ::core::primitive::str = #variant_name_body;
       if __typex_name == __typex_variant {
         return ::core::option::Option::Some(
-          ::typex::ObjectRefMut::new(self as &mut dyn ::typex::MetaMut),
+          ::typex::ObjectRefMut::new(self),
         );
       }
       #field_match
