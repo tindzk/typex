@@ -200,8 +200,7 @@ fn move_item_out_of_bounds_leaves_sequence_unchanged() {
 fn move_item_reports_out_of_bounds_source_index() {
   let mut items = vec![1_u8, 2_u8, 3_u8];
 
-  let result = items
-    .dyn_meta_mut()
+  let result = ObjectRefMut::new(&mut items)
     .apply([PatchOperation::move_item([], 3, 0)]);
 
   assert_eq!(
@@ -225,8 +224,7 @@ fn failed_move_restores_the_removed_item() {
     values: vec![1, 2, 3],
   };
 
-  let result = sequence
-    .dyn_meta_mut()
+  let result = ObjectRefMut::new(&mut sequence)
     .apply([PatchOperation::move_item([], 0, 2)]);
 
   assert!(matches!(
@@ -245,8 +243,7 @@ fn failed_move_reports_an_item_that_it_cannot_restore() {
     values: vec![1, 2, 3],
   };
 
-  let result = sequence
-    .dyn_meta_mut()
+  let result = ObjectRefMut::new(&mut sequence)
     .apply([PatchOperation::move_item([], 0, 2)]);
 
   assert_eq!(

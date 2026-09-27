@@ -1,7 +1,7 @@
 // Keep public API names in scope for short intra-doc links.
 #[allow(unused_imports)]
 use crate::{
-  AccessKind, ApplyError, FieldPathQuery, FieldPathQueryMut, MapEntryVisitor, Meta, MetaMut,
+  AccessKind, MoveItemError, SequenceAccessMut, ApplyError, FieldPathQuery, FieldPathQueryMut, MapEntryVisitor, Meta, MetaMut,
   MutationBatch, PatchOperation, PathSegment, Reflect, ReflectiveError, TypeInfo, TypedPath,
   ValueKind, apply_patch,
 };
@@ -650,6 +650,11 @@ impl<'a> ObjectRefMut<'a> {
       .inner
       .remove_item(index)
       .ok_or(ReflectiveError::PathNotFound)
+  }
+
+  /// Moves an item; see [`SequenceAccessMut::move_item`].
+  pub fn move_item(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {
+    self.inner.move_item(from, to)
   }
 
   /// Overwrites the whole referenced value in place with `value`, consuming

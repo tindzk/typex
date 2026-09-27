@@ -10,28 +10,6 @@ pub(super) use alloc::vec::Vec;
 
 mod support;
 
-/// Reflective trait-object view of a concrete test value.
-trait DynMeta {
-  fn dyn_meta(&self) -> &dyn Meta;
-}
-
-impl<T: Meta> DynMeta for T {
-  fn dyn_meta(&self) -> &dyn Meta {
-    self
-  }
-}
-
-/// Mutable reflective trait-object view of a concrete test value.
-trait DynMetaMut {
-  fn dyn_meta_mut(&mut self) -> &mut dyn MetaMut;
-}
-
-impl<T: MetaMut> DynMetaMut for T {
-  fn dyn_meta_mut(&mut self) -> &mut dyn MetaMut {
-    self
-  }
-}
-
 mod access;
 mod derive;
 mod equality;

@@ -9,17 +9,6 @@ use typex::{
 };
 use typex_derive::{Meta, MetaMut};
 
-/// Reflective trait-object view of a concrete test value.
-trait DynMeta {
-  fn dyn_meta(&self) -> &dyn Meta;
-}
-
-impl<T: Meta> DynMeta for T {
-  fn dyn_meta(&self) -> &dyn Meta {
-    self
-  }
-}
-
 #[derive(Debug, PartialEq, Meta)]
 #[typex(opaque)]
 struct Number(u16);
@@ -72,7 +61,7 @@ fn meta_smoke_test() {
     labels_by_name: BTreeMap::from([("primary", Label { name: "mapped" })]),
   };
   assert_eq!(
-    payload.dyn_meta().field_names(),
+    ObjectRef::new(&payload).field_names(),
     &[
       "values",
       "label",
@@ -87,28 +76,25 @@ fn meta_smoke_test() {
     ]
   );
   assert_eq!(
-    payload
-      .dyn_meta()
-      .field_dyn("values")
+    ObjectRef::new(&payload)
+      .field("values")
       .unwrap()
       .to_ref::<usize>(),
     Some(&2)
   );
   assert_eq!(
-    payload
-      .dyn_meta()
-      .field_dyn("label")
+    ObjectRef::new(&payload)
+      .field("label")
       .unwrap()
       .to_ref::<&'static str>(),
     Some(&"ok")
   );
-  let labels = payload.dyn_meta().field_dyn("labels").unwrap();
+  let labels = ObjectRef::new(&payload).field("labels").unwrap();
   assert_eq!(labels.len(), Some(1));
   assert_eq!(labels.item(0).unwrap().field_names(), &["name"]);
   assert_eq!(
-    payload
-      .dyn_meta()
-      .field_dyn("optional_label")
+    ObjectRef::new(&payload)
+      .field("optional_label")
       .unwrap()
       .field("name")
       .unwrap()
@@ -116,37 +102,33 @@ fn meta_smoke_test() {
     Some(&"optional")
   );
   assert_eq!(
-    payload
-      .dyn_meta()
-      .field_dyn("optional_label")
+    ObjectRef::new(&payload)
+      .field("optional_label")
       .unwrap()
       .len(),
     Some(1)
   );
   assert_eq!(
-    payload.dyn_meta().field_dyn("absent_label").unwrap().len(),
+    ObjectRef::new(&payload).field("absent_label").unwrap().len(),
     Some(0)
   );
   assert!(
-    payload
-      .dyn_meta()
-      .field_dyn("absent_label")
+    ObjectRef::new(&payload)
+      .field("absent_label")
       .unwrap()
       .field("name")
       .is_none()
   );
   assert!(
-    payload
-      .dyn_meta()
-      .field_dyn("absent_label")
+    ObjectRef::new(&payload)
+      .field("absent_label")
       .unwrap()
       .item(0)
       .is_none()
   );
   assert_eq!(
-    payload
-      .dyn_meta()
-      .field_dyn("pair")
+    ObjectRef::new(&payload)
+      .field("pair")
       .unwrap()
       .item(0)
       .unwrap()
@@ -154,9 +136,8 @@ fn meta_smoke_test() {
     Some(&4)
   );
   assert_eq!(
-    payload
-      .dyn_meta()
-      .field_dyn("bytes")
+    ObjectRef::new(&payload)
+      .field("bytes")
       .unwrap()
       .item(1)
       .unwrap()
@@ -164,7 +145,7 @@ fn meta_smoke_test() {
     Some(&0xff)
   );
 
-  let labels_by_name = payload.dyn_meta().field_dyn("labels_by_name").unwrap();
+  let labels_by_name = ObjectRef::new(&payload).field("labels_by_name").unwrap();
   assert_eq!(labels_by_name.keys(), Some(vec!["primary".to_string()]));
   assert_eq!(
     labels_by_name
@@ -185,7 +166,7 @@ fn meta_smoke_test() {
       .to_ref::<&'static str>(),
     Some(&"indexed")
   );
-  let status = payload.dyn_meta().field_dyn("status").unwrap();
+  let status = ObjectRef::new(&payload).field("status").unwrap();
   assert_eq!(status.field_names(), &["Struct", "count"]);
   assert_eq!(
     status
@@ -251,13 +232,12 @@ fn meta_smoke_test() {
 #[test]
 fn tuple_and_unit_enum_variants_are_accessible() {
   let tuple = Status::Tuple(9, true);
-  assert_eq!(tuple.dyn_meta().field_names(), &["Tuple", "0", "1"]);
-  assert_eq!(tuple.dyn_meta().len(), Some(2));
-  assert_eq!(tuple.dyn_meta().item(0).unwrap().to_ref::<u8>(), Some(&9));
+  assert_eq!(ObjectRef::new(&tuple).field_names(), &["Tuple", "0", "1"]);
+  assert_eq!(ObjectRef::new(&tuple).len(), Some(2));
+  assert_eq!(ObjectRef::new(&tuple).item(0).unwrap().to_ref::<u8>(), Some(&9));
   assert_eq!(
-    tuple
-      .dyn_meta()
-      .field_dyn("Tuple")
+    ObjectRef::new(&tuple)
+      .field("Tuple")
       .unwrap()
       .item(1)
       .unwrap()
@@ -266,11 +246,10 @@ fn tuple_and_unit_enum_variants_are_accessible() {
   );
 
   let ready = Status::Ready;
-  assert_eq!(ready.dyn_meta().field_names(), &["Ready"]);
+  assert_eq!(ObjectRef::new(&ready).field_names(), &["Ready"]);
   assert!(
-    ready
-      .dyn_meta()
-      .field_dyn("Ready")
+    ObjectRef::new(&ready)
+      .field("Ready")
       .unwrap()
       .field("missing")
       .is_none()
@@ -299,9 +278,8 @@ fn derived_set_swaps_a_nested_field_wholesale() {
     .unwrap();
 
   assert_eq!(
-    payload
-      .dyn_meta()
-      .field_dyn("optional_label")
+    ObjectRef::new(&payload)
+      .field("optional_label")
       .unwrap()
       .field("name")
       .unwrap()

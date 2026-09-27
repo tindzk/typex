@@ -29,7 +29,7 @@ fn object_ref_mut_eq_compares_structurally() {
 #[test]
 fn nan_is_never_equal_to_itself() {
   let nan = f64::NAN;
-  assert!(!(nan.dyn_meta() == nan.dyn_meta()));
+  assert!(!(ObjectRef::new(&nan) == ObjectRef::new(&nan)));
 }
 
 #[test]
@@ -51,9 +51,9 @@ fn struct_eq_dyn_compares_fields_structurally() {
     label: Text("y"),
   };
 
-  assert!(a.dyn_meta() == b.dyn_meta());
-  assert!(a.dyn_meta() != different_count.dyn_meta());
-  assert!(a.dyn_meta() != different_label.dyn_meta());
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_count));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_label));
 }
 
 #[test]
@@ -63,9 +63,9 @@ fn vec_eq_dyn_compares_items_pairwise() {
   let shorter = vec![Number(1)];
   let different_element = vec![Number(1), Number(3)];
 
-  assert!(a.dyn_meta() == b.dyn_meta());
-  assert!(a.dyn_meta() != shorter.dyn_meta());
-  assert!(a.dyn_meta() != different_element.dyn_meta());
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&shorter));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_element));
 }
 
 #[test]
@@ -76,10 +76,10 @@ fn option_eq_dyn_compares_inner_value_or_absence() {
   let none: Option<Number> = None;
   let none_too: Option<Number> = None;
 
-  assert!(some_a.dyn_meta() == some_b.dyn_meta());
-  assert!(some_a.dyn_meta() != some_other.dyn_meta());
-  assert!(none.dyn_meta() == none_too.dyn_meta());
-  assert!(some_a.dyn_meta() != none.dyn_meta());
+  assert!(ObjectRef::new(&some_a) == ObjectRef::new(&some_b));
+  assert!(ObjectRef::new(&some_a) != ObjectRef::new(&some_other));
+  assert!(ObjectRef::new(&none) == ObjectRef::new(&none_too));
+  assert!(ObjectRef::new(&some_a) != ObjectRef::new(&none));
 }
 
 #[test]
@@ -88,8 +88,8 @@ fn result_eq_dyn_distinguishes_variants() {
   let ok_b: Result<Number, Text> = Ok(Number(7));
   let err: Result<Number, Text> = Err(Text("boom"));
 
-  assert!(ok_a.dyn_meta() == ok_b.dyn_meta());
-  assert!(ok_a.dyn_meta() != err.dyn_meta());
+  assert!(ObjectRef::new(&ok_a) == ObjectRef::new(&ok_b));
+  assert!(ObjectRef::new(&ok_a) != ObjectRef::new(&err));
 }
 
 #[test]
@@ -108,8 +108,8 @@ fn map_eq_dyn_compares_string_keyed_entries_as_a_set() {
     (String::from("b"), Number(9)),
   ]);
 
-  assert!(a.dyn_meta() == b.dyn_meta());
-  assert!(a.dyn_meta() != different_value.dyn_meta());
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_value));
 }
 
 #[test]
@@ -122,9 +122,9 @@ fn map_eq_dyn_compares_non_string_keyed_maps_via_native_key_equality() {
   let different_key = BTreeMap::from([(8usize, Number(1))]);
   let different_value = BTreeMap::from([(7usize, Number(2))]);
 
-  assert!(a.dyn_meta() == b.dyn_meta());
-  assert!(a.dyn_meta() != different_key.dyn_meta());
-  assert!(a.dyn_meta() != different_value.dyn_meta());
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_key));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_value));
 }
 
 #[cfg(feature = "std")]
@@ -148,9 +148,9 @@ fn hash_map_eq_dyn_compares_via_native_key_equality() {
   ]);
   let fewer_entries = HashMap::from([(String::from("a"), Number(1))]);
 
-  assert!(a.dyn_meta() == b.dyn_meta());
-  assert!(a.dyn_meta() != different_value.dyn_meta());
-  assert!(a.dyn_meta() != fewer_entries.dyn_meta());
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_value));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&fewer_entries));
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn mismatched_wrapper_types_are_not_equal() {
   let boxed: Box<Number> = Box::new(Number(7));
   let plain = Number(7);
 
-  assert!(boxed.dyn_meta() != plain.dyn_meta());
+  assert!(ObjectRef::new(&boxed) != ObjectRef::new(&plain));
 }
 
 /// Hand-written struct with zero exposed fields, standing in for a unit struct
@@ -196,7 +196,7 @@ fn struct_eq_dyn_treats_zero_exposed_fields_as_equal_not_opaque() {
   let a = EmptyRecord;
   let b = EmptyRecord;
 
-  assert!(a.dyn_meta() == b.dyn_meta());
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
 }
 
 /// Hand-written struct that advertises a field without exposing its value.
@@ -232,7 +232,7 @@ fn struct_eq_dyn_rejects_unresolved_fields() {
   let a = UnresolvedFieldRecord;
   let b = UnresolvedFieldRecord;
 
-  assert!(a.dyn_meta() != b.dyn_meta());
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&b));
 }
 
 /// Hand-written map without an `eq_dyn` override. Exercises the default
@@ -305,7 +305,7 @@ fn map_entries_eq_dyn_fallback_compares_entries_as_a_set() {
   // Same entries, different order.
   let b = EntryMap::new(&[("b", 2), ("a", 1)]);
 
-  assert!(a.dyn_meta() == b.dyn_meta());
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
 }
 
 #[test]
@@ -313,8 +313,8 @@ fn map_entries_eq_dyn_fallback_rejects_missing_key() {
   let a = EntryMap::new(&[("a", 1), ("b", 2)]);
   let fewer_entries = EntryMap::new(&[("a", 1)]);
 
-  assert!(a.dyn_meta() != fewer_entries.dyn_meta());
-  assert!(fewer_entries.dyn_meta() != a.dyn_meta());
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&fewer_entries));
+  assert!(ObjectRef::new(&fewer_entries) != ObjectRef::new(&a));
 }
 
 #[test]
@@ -322,7 +322,7 @@ fn map_entries_eq_dyn_fallback_short_circuits_on_first_mismatch() {
   let a = EntryMap::new(&[("a", 1), ("b", 2), ("c", 3)]);
   let different_first_value = EntryMap::new(&[("a", 9), ("b", 2), ("c", 3)]);
 
-  assert!(a.dyn_meta() != different_first_value.dyn_meta());
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_first_value));
   // Only the first entry needed visiting before the mismatch broke the loop.
   assert_eq!(a.visits.get(), 1);
 }
@@ -332,7 +332,7 @@ fn map_entries_eq_dyn_fallback_rejects_different_lengths_without_traversal() {
   let a = EntryMap::new(&[("a", 1), ("b", 2)]);
   let larger = EntryMap::new(&[("a", 1), ("b", 2), ("c", 3), ("d", 4), ("e", 5)]);
 
-  assert!(a.dyn_meta() != larger.dyn_meta());
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&larger));
   assert_eq!(a.visits.get(), 0);
   assert_eq!(larger.visits.get(), 0);
 }
@@ -342,7 +342,7 @@ fn map_entries_eq_dyn_fallback_uses_len_to_skip_other_traversal() {
   let a = EntryMap::new(&[("a", 1), ("b", 2)]);
   let b = EntryMap::new(&[("b", 2), ("a", 1)]);
 
-  assert!(a.dyn_meta() == b.dyn_meta());
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
   assert_eq!(a.visits.get(), 2);
   assert_eq!(b.visits.get(), 0);
 }
@@ -408,7 +408,7 @@ fn map_entries_eq_dyn_fallback_accepts_static_str_keys() {
   let a = StaticKeyEntryMap::new(&[("a", 1), ("b", 2)]);
   let b = StaticKeyEntryMap::new(&[("b", 2), ("a", 1)]);
 
-  assert!(a.dyn_meta() == b.dyn_meta());
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
 }
 
 #[derive(Debug)]
@@ -468,7 +468,7 @@ fn map_entries_eq_dyn_fallback_rejects_non_string_keys() {
   let a = NumericEntryMap::new(&[(1, 7)]);
   let b = NumericEntryMap::new(&[(1, 7)]);
 
-  assert!(a.dyn_meta() != b.dyn_meta());
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&b));
 }
 
 #[test]
