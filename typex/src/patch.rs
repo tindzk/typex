@@ -492,6 +492,7 @@ impl fmt::Display for ApplyError<'_> {
 #[cfg(feature = "std")]
 impl std::error::Error for ApplyError<'_> {}
 
+#[inline]
 fn resolve_target<'a, 'p>(
   root: &'a mut dyn MetaMut,
   path: Vec<PathSegment<'p>>,
@@ -537,6 +538,9 @@ fn unsupported<'p, T, E>(
   result.map_err(|_| ApplyError::Unsupported { path, operation })
 }
 
+// Inlined into each `apply_patch` instance, as it was while generic over the
+// root type.
+#[inline]
 fn apply_operation<'p>(
   root: &mut dyn MetaMut,
   operation: PatchOperation<'p>,
