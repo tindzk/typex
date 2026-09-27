@@ -173,8 +173,12 @@ pub trait TypedMapAccessMut<K> {
 }
 
 /// Compares two values of the same type through their structural shapes.
-fn structural_eq(this: Reflect<'_>, this_any: &dyn Any, other: &dyn Meta) -> bool {
-  match (this, other.reflect()) {
+// Generic over `T` so that each default `Meta::eq_dyn` calls `T::reflect`
+// statically, which lets the compiler call the access trait of `this` directly.
+#[inline]
+fn structural_eq<T: Meta + ?Sized>(this: &T, other: &dyn Meta) -> bool {
+  let this_any = this.as_any();
+  match (this.reflect(), other.reflect()) {
     (Reflect::Option(a), Reflect::Option(b)) => match (a, b) {
       (Some(a), Some(b)) => a.eq_dyn(b),
       (None, None) => true,
@@ -300,7 +304,7 @@ pub trait Meta: Any {
   /// `#[typex(partial_eq)]` or a hand-written implementation. Float equality
   /// follows `PartialEq`, so `NaN != NaN`.
   fn eq_dyn(&self, other: &dyn Meta) -> bool {
-    self.type_info() == other.type_info() && structural_eq(self.reflect(), self.as_any(), other)
+    self.type_info() == other.type_info() && structural_eq(self, other)
   }
 
   /// Converts this [`Meta`] instance into a boxed `Any` for owned conversions;
