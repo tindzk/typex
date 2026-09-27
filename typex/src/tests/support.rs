@@ -6,14 +6,11 @@ use alloc::vec::Vec;
 use core::any::Any;
 
 pub(super) fn move_item_by_remove_insert(
-  value: &mut dyn MetaMut,
+  value: &mut dyn SequenceAccessMut,
   from: usize,
   to: usize,
 ) -> Result<(), MoveItemError> {
-  if value.as_meta().kind() != ValueKind::Sequence {
-    return Err(MoveItemError::Unsupported);
-  }
-  let len = value.as_meta().len().ok_or(MoveItemError::Unsupported)?;
+  let len = value.len();
   if from >= len || to > len {
     return Err(MoveItemError::IndexOutOfBounds);
   }
