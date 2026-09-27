@@ -21,8 +21,8 @@ IDENTIFIER = re.compile(r"^[a-z0-9-]+$")
 PRELUDE = """#![allow(dead_code, unused_imports, unused_mut, unused_variables)]
 
 use typex::{
-  AccessKind, ValueKind, FieldPath, FieldPathMut, Meta, MetaMut,
-  Object, ObjectOps, ObjectRefMut, PathSegment, SendObject, TypeInfo, TypeMap,
+  AccessKind, ValueKind, Meta, MetaMut,
+  Object, ObjectOps, ObjectRef, ObjectRefMut, PathSegment, SendObject, TypeInfo, TypeMap,
 };
 """
 

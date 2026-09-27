@@ -4,16 +4,35 @@ use core::any::Any;
 use core::cell::Cell;
 
 #[test]
+fn keyed_sequence_equality_compares_items_in_order() {
+  let mut left = KeyedSequence {
+    items: vec![("a".to_owned(), Number(1)), ("b".to_owned(), Number(2))],
+  };
+  let mut right = KeyedSequence {
+    items: left.items.clone(),
+  };
+
+  assert!(ObjectRef::new(&left) == ObjectRef::new(&right));
+  right.items.reverse();
+  assert!(ObjectRef::new(&left) != ObjectRef::new(&right));
+  right.items = vec![("a".to_owned(), Number(1))];
+  assert!(ObjectRef::new(&left) != ObjectRef::new(&right));
+  left.items.clear();
+  right.items.clear();
+  assert!(ObjectRef::new(&left) == ObjectRef::new(&right));
+}
+
+#[test]
 fn leaf_eq_dyn_compares_by_value_and_type() {
   let a = Object::new(Number(7));
   let b = Object::new(Number(7));
   let c = Object::new(Number(8));
   let d = Object::new(Text("7"));
 
-  assert!(a.as_ref() as &dyn Meta == b.as_ref() as &dyn Meta);
-  assert!(a.as_ref() as &dyn Meta != c.as_ref() as &dyn Meta);
+  assert!(a == b);
+  assert!(a != c);
   // Different concrete types are never equal, even with "matching" data.
-  assert!(a.as_ref() as &dyn Meta != d.as_ref() as &dyn Meta);
+  assert!(a != d);
 }
 
 #[test]
@@ -29,7 +48,7 @@ fn object_ref_mut_eq_compares_structurally() {
 #[test]
 fn nan_is_never_equal_to_itself() {
   let nan = f64::NAN;
-  assert!(!(&nan as &dyn Meta == &nan as &dyn Meta));
+  assert!(!(ObjectRef::new(&nan) == ObjectRef::new(&nan)));
 }
 
 #[test]
@@ -51,9 +70,9 @@ fn struct_eq_dyn_compares_fields_structurally() {
     label: Text("y"),
   };
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
-  assert!(&a as &dyn Meta != &different_count as &dyn Meta);
-  assert!(&a as &dyn Meta != &different_label as &dyn Meta);
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_count));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_label));
 }
 
 #[test]
@@ -63,9 +82,9 @@ fn vec_eq_dyn_compares_items_pairwise() {
   let shorter = vec![Number(1)];
   let different_element = vec![Number(1), Number(3)];
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
-  assert!(&a as &dyn Meta != &shorter as &dyn Meta);
-  assert!(&a as &dyn Meta != &different_element as &dyn Meta);
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&shorter));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_element));
 }
 
 #[test]
@@ -76,10 +95,10 @@ fn option_eq_dyn_compares_inner_value_or_absence() {
   let none: Option<Number> = None;
   let none_too: Option<Number> = None;
 
-  assert!(&some_a as &dyn Meta == &some_b as &dyn Meta);
-  assert!(&some_a as &dyn Meta != &some_other as &dyn Meta);
-  assert!(&none as &dyn Meta == &none_too as &dyn Meta);
-  assert!(&some_a as &dyn Meta != &none as &dyn Meta);
+  assert!(ObjectRef::new(&some_a) == ObjectRef::new(&some_b));
+  assert!(ObjectRef::new(&some_a) != ObjectRef::new(&some_other));
+  assert!(ObjectRef::new(&none) == ObjectRef::new(&none_too));
+  assert!(ObjectRef::new(&some_a) != ObjectRef::new(&none));
 }
 
 #[test]
@@ -88,8 +107,107 @@ fn result_eq_dyn_distinguishes_variants() {
   let ok_b: Result<Number, Text> = Ok(Number(7));
   let err: Result<Number, Text> = Err(Text("boom"));
 
-  assert!(&ok_a as &dyn Meta == &ok_b as &dyn Meta);
-  assert!(&ok_a as &dyn Meta != &err as &dyn Meta);
+  assert!(ObjectRef::new(&ok_a) == ObjectRef::new(&ok_b));
+  assert!(ObjectRef::new(&ok_a) != ObjectRef::new(&err));
+
+  // Both variants hold the same payload at item 0.
+  let ok: Result<Number, Number> = Ok(Number(7));
+  let err: Result<Number, Number> = Err(Number(7));
+  assert!(ObjectRef::new(&ok) != ObjectRef::new(&err));
+
+  let other: Result<Number, Number> = Ok(Number(8));
+  assert!(ObjectRef::new(&ok) != ObjectRef::new(&other));
+}
+
+/// Hand-written tuple struct without an `eq_dyn` override, so equality goes
+/// through the default positional comparison.
+#[derive(Debug)]
+struct PositionalRecord(u8, Text);
+
+impl Meta for PositionalRecord {
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Tuple(self)
+  }
+
+  fn into_any(self: Box<Self>) -> Box<dyn Any> {
+    self
+  }
+
+  fn as_any(&self) -> &dyn Any {
+    self
+  }
+}
+
+impl TupleAccess for PositionalRecord {
+  fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
+    match index {
+      0 => Some(ObjectRef::new(&self.0)),
+      1 => Some(ObjectRef::new(&self.1)),
+      _ => None,
+    }
+  }
+
+  fn len(&self) -> usize {
+    2
+  }
+}
+
+#[test]
+fn tuple_struct_eq_dyn_compares_positional_fields() {
+  let a = PositionalRecord(1, Text("a"));
+
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&PositionalRecord(1, Text("a"))));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&PositionalRecord(1, Text("b"))));
+}
+
+#[test]
+fn enum_eq_dyn_compares_variants_then_fields() {
+  let circle = Shape::Circle { radius: 1 };
+  let pair = Shape::Pair(1, 2);
+
+  assert!(ObjectRef::new(&circle) == ObjectRef::new(&Shape::Circle { radius: 1 }));
+  assert!(ObjectRef::new(&circle) != ObjectRef::new(&Shape::Circle { radius: 2 }));
+  assert!(ObjectRef::new(&pair) == ObjectRef::new(&Shape::Pair(1, 2)));
+  assert!(ObjectRef::new(&pair) != ObjectRef::new(&Shape::Pair(1, 3)));
+  assert!(ObjectRef::new(&Shape::Empty) == ObjectRef::new(&Shape::Empty));
+  assert!(ObjectRef::new(&circle) != ObjectRef::new(&pair));
+  assert!(ObjectRef::new(&circle) != ObjectRef::new(&Shape::Empty));
+}
+
+#[test]
+fn enum_access_follows_the_active_variant() {
+  let circle = ObjectRef::new(&Shape::Circle { radius: 1 });
+  let pair = Shape::Pair(1, 2);
+  let pair = ObjectRef::new(&pair);
+  let empty = ObjectRef::new(&Shape::Empty);
+
+  assert_eq!(circle.access_kind(), Some(AccessKind::Field));
+  assert_eq!(circle.field_names(), &["radius"]);
+  assert_eq!(circle.len(), None);
+  assert!(circle.item(0).is_none());
+  assert_eq!(
+    circle
+      .field_path(&[PathSegment::Variant("Circle"), PathSegment::Field("radius")])
+      .unwrap()
+      .to_ref::<u8>(),
+    Some(&1)
+  );
+
+  assert_eq!(pair.access_kind(), Some(AccessKind::Index));
+  assert!(pair.field_names().is_empty());
+  assert_eq!(pair.len(), Some(2));
+  assert_eq!(pair.item(1).unwrap().to_ref::<u8>(), Some(&2));
+  assert!(pair.field("radius").is_none());
+
+  assert_eq!(empty.access_kind(), Some(AccessKind::Field));
+  assert_eq!(empty.len(), None);
+  assert!(empty.field_names().is_empty());
+}
+
+#[test]
+fn tuple_eq_dyn_compares_positional_fields() {
+  assert!(ObjectRef::new(&(1_u8, Text("a"))) == ObjectRef::new(&(1_u8, Text("a"))));
+  assert!(ObjectRef::new(&(1_u8, Text("a"))) != ObjectRef::new(&(1_u8, Text("b"))));
 }
 
 #[test]
@@ -108,13 +226,13 @@ fn map_eq_dyn_compares_string_keyed_entries_as_a_set() {
     (String::from("b"), Number(9)),
   ]);
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
-  assert!(&a as &dyn Meta != &different_value as &dyn Meta);
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_value));
 }
 
 #[test]
 fn map_eq_dyn_compares_non_string_keyed_maps_via_native_key_equality() {
-  // `Meta::keys()`/`key()` only work for string-like keys, but `BTreeMap`'s
+  // `keys()`/`key()` only work for string-like keys, but `BTreeMap`'s
   // `eq_dyn` override compares `K` natively instead of round-tripping
   // through them, so non-string keys still compare correctly.
   let a = BTreeMap::from([(7usize, Number(1))]);
@@ -122,9 +240,9 @@ fn map_eq_dyn_compares_non_string_keyed_maps_via_native_key_equality() {
   let different_key = BTreeMap::from([(8usize, Number(1))]);
   let different_value = BTreeMap::from([(7usize, Number(2))]);
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
-  assert!(&a as &dyn Meta != &different_key as &dyn Meta);
-  assert!(&a as &dyn Meta != &different_value as &dyn Meta);
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_key));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_value));
 }
 
 #[cfg(feature = "std")]
@@ -148,9 +266,9 @@ fn hash_map_eq_dyn_compares_via_native_key_equality() {
   ]);
   let fewer_entries = HashMap::from([(String::from("a"), Number(1))]);
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
-  assert!(&a as &dyn Meta != &different_value as &dyn Meta);
-  assert!(&a as &dyn Meta != &fewer_entries as &dyn Meta);
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_value));
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&fewer_entries));
 }
 
 #[test]
@@ -158,18 +276,18 @@ fn mismatched_wrapper_types_are_not_equal() {
   let boxed: Box<Number> = Box::new(Number(7));
   let plain = Number(7);
 
-  assert!(&boxed as &dyn Meta != &plain as &dyn Meta);
+  assert!(ObjectRef::new(&boxed) != ObjectRef::new(&plain));
 }
 
 /// Hand-written struct with zero exposed fields, standing in for a unit struct
-/// with `#[derive(Meta)]`. `kind()` reports `Struct` even though
-/// `field_names()` is empty, unlike a truly opaque `Scalar`.
+/// with `#[derive(Meta)]`. It reflects as a struct even though
+/// `field_names()` is empty, unlike a truly opaque scalar.
 #[derive(Debug)]
 struct EmptyRecord;
 
 impl Meta for EmptyRecord {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Struct
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Struct(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -178,6 +296,16 @@ impl Meta for EmptyRecord {
 
   fn as_any(&self) -> &dyn Any {
     self
+  }
+}
+
+impl StructAccess for EmptyRecord {
+  fn field(&self, _name: &str) -> Option<ObjectRef<'_>> {
+    None
+  }
+
+  fn field_names(&self) -> &'static [&'static str] {
+    &[]
   }
 }
 
@@ -186,10 +314,7 @@ fn struct_eq_dyn_treats_zero_exposed_fields_as_equal_not_opaque() {
   let a = EmptyRecord;
   let b = EmptyRecord;
 
-  // Before dispatching on `kind()`, an empty `field_names()` fell through to
-  // the `keys()`/`len()` probes and finally to the opaque-leaf default of
-  // `false`, so even `EmptyRecord == EmptyRecord` failed.
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
 }
 
 /// Hand-written struct that advertises a field without exposing its value.
@@ -197,12 +322,8 @@ fn struct_eq_dyn_treats_zero_exposed_fields_as_equal_not_opaque() {
 struct UnresolvedFieldRecord;
 
 impl Meta for UnresolvedFieldRecord {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Struct
-  }
-
-  fn field_names(&self) -> &'static [&'static str] {
-    &["value"]
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Struct(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -214,19 +335,28 @@ impl Meta for UnresolvedFieldRecord {
   }
 }
 
+impl StructAccess for UnresolvedFieldRecord {
+  fn field(&self, _name: &str) -> Option<ObjectRef<'_>> {
+    None
+  }
+
+  fn field_names(&self) -> &'static [&'static str] {
+    &["value"]
+  }
+}
+
 #[test]
 fn struct_eq_dyn_rejects_unresolved_fields() {
   let a = UnresolvedFieldRecord;
   let b = UnresolvedFieldRecord;
 
-  assert!(&a as &dyn Meta != &b as &dyn Meta);
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&b));
 }
 
-/// Hand-written map with a `visit_map_entries` override but no `eq_dyn` override,
-/// standing in for a `#[derive(Meta)]` map type. Exercises the default
-/// `Meta::eq_dyn` `ValueKind::Map` fallback in `traits.rs`, which
-/// `BTreeMap`/`HashMap` bypass via their own native-key `eq_dyn`. Counts
-/// `visit_map_entries` visits so tests can assert the fallback short-circuits
+/// Hand-written map without an `eq_dyn` override. Exercises the default
+/// `Meta::eq_dyn` map comparison in `traits.rs`, which `BTreeMap` and
+/// `HashMap` bypass via their own native-key `eq_dyn`. Counts
+/// `visit_entries` visits so tests can assert the comparison short-circuits
 /// before visiting the other map.
 #[derive(Debug)]
 struct EntryMap {
@@ -247,30 +377,8 @@ impl EntryMap {
 }
 
 impl Meta for EntryMap {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Map
-  }
-
-  fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
-    self
-      .entries
-      .iter()
-      .find(|(k, _)| k == key)
-      .map(|(_, value)| ObjectRef::new(value as &dyn Meta))
-  }
-
-  fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
-    for (key, value) in &self.entries {
-      self.visits.set(self.visits.get() + 1);
-      if !visitor(AnyRef::new(key), ObjectRef::new(value as &dyn Meta)) {
-        break;
-      }
-    }
-    true
-  }
-
-  fn len(&self) -> Option<usize> {
-    Some(self.entries.len())
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Map(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -279,6 +387,33 @@ impl Meta for EntryMap {
 
   fn as_any(&self) -> &dyn Any {
     self
+  }
+}
+
+impl MapAccess for EntryMap {
+  fn len(&self) -> usize {
+    self.entries.len()
+  }
+
+  fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
+    self
+      .entries
+      .iter()
+      .find(|(k, _)| k == key)
+      .map(|(_, value)| ObjectRef::new(value))
+  }
+
+  fn keys(&self) -> Option<Vec<String>> {
+    None
+  }
+
+  fn visit_entries(&self, visitor: &mut MapEntryVisitor<'_>) {
+    for (key, value) in &self.entries {
+      self.visits.set(self.visits.get() + 1);
+      if !visitor(AnyRef::new(key), ObjectRef::new(value)) {
+        break;
+      }
+    }
   }
 }
 
@@ -288,7 +423,7 @@ fn map_entries_eq_dyn_fallback_compares_entries_as_a_set() {
   // Same entries, different order.
   let b = EntryMap::new(&[("b", 2), ("a", 1)]);
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
 }
 
 #[test]
@@ -296,8 +431,8 @@ fn map_entries_eq_dyn_fallback_rejects_missing_key() {
   let a = EntryMap::new(&[("a", 1), ("b", 2)]);
   let fewer_entries = EntryMap::new(&[("a", 1)]);
 
-  assert!(&a as &dyn Meta != &fewer_entries as &dyn Meta);
-  assert!(&fewer_entries as &dyn Meta != &a as &dyn Meta);
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&fewer_entries));
+  assert!(ObjectRef::new(&fewer_entries) != ObjectRef::new(&a));
 }
 
 #[test]
@@ -305,7 +440,7 @@ fn map_entries_eq_dyn_fallback_short_circuits_on_first_mismatch() {
   let a = EntryMap::new(&[("a", 1), ("b", 2), ("c", 3)]);
   let different_first_value = EntryMap::new(&[("a", 9), ("b", 2), ("c", 3)]);
 
-  assert!(&a as &dyn Meta != &different_first_value as &dyn Meta);
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&different_first_value));
   // Only the first entry needed visiting before the mismatch broke the loop.
   assert_eq!(a.visits.get(), 1);
 }
@@ -315,7 +450,7 @@ fn map_entries_eq_dyn_fallback_rejects_different_lengths_without_traversal() {
   let a = EntryMap::new(&[("a", 1), ("b", 2)]);
   let larger = EntryMap::new(&[("a", 1), ("b", 2), ("c", 3), ("d", 4), ("e", 5)]);
 
-  assert!(&a as &dyn Meta != &larger as &dyn Meta);
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&larger));
   assert_eq!(a.visits.get(), 0);
   assert_eq!(larger.visits.get(), 0);
 }
@@ -325,64 +460,9 @@ fn map_entries_eq_dyn_fallback_uses_len_to_skip_other_traversal() {
   let a = EntryMap::new(&[("a", 1), ("b", 2)]);
   let b = EntryMap::new(&[("b", 2), ("a", 1)]);
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
   assert_eq!(a.visits.get(), 2);
   assert_eq!(b.visits.get(), 0);
-}
-
-#[derive(Debug)]
-struct KeyOnlyMap {
-  entries: Vec<(String, Number)>,
-}
-
-impl KeyOnlyMap {
-  fn new(entries: &[(&str, u16)]) -> Self {
-    KeyOnlyMap {
-      entries: entries
-        .iter()
-        .map(|&(key, value)| (key.to_owned(), Number(value)))
-        .collect(),
-    }
-  }
-}
-
-impl Meta for KeyOnlyMap {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Map
-  }
-
-  fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
-    self
-      .entries
-      .iter()
-      .find(|(entry_key, _)| entry_key == key)
-      .map(|(_, value)| ObjectRef::new(value as &dyn Meta))
-  }
-
-  fn keys(&self) -> Option<Vec<String>> {
-    Some(self.entries.iter().map(|(key, _)| key.clone()).collect())
-  }
-
-  fn len(&self) -> Option<usize> {
-    Some(self.entries.len())
-  }
-
-  fn into_any(self: Box<Self>) -> Box<dyn Any> {
-    self
-  }
-
-  fn as_any(&self) -> &dyn Any {
-    self
-  }
-}
-
-#[test]
-fn map_eq_dyn_rejects_maps_without_entry_access() {
-  let a = KeyOnlyMap::new(&[("a", 1), ("b", 2)]);
-  let b = KeyOnlyMap::new(&[("b", 2), ("a", 1)]);
-
-  assert!(&a as &dyn Meta != &b as &dyn Meta);
-  assert!(&b as &dyn Meta != &a as &dyn Meta);
 }
 
 #[derive(Debug)]
@@ -402,29 +482,8 @@ impl StaticKeyEntryMap {
 }
 
 impl Meta for StaticKeyEntryMap {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Map
-  }
-
-  fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
-    self
-      .entries
-      .iter()
-      .find(|(entry_key, _)| *entry_key == key)
-      .map(|(_, value)| ObjectRef::new(value as &dyn Meta))
-  }
-
-  fn len(&self) -> Option<usize> {
-    Some(self.entries.len())
-  }
-
-  fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
-    for (key, value) in &self.entries {
-      if !visitor(AnyRef::new(key), ObjectRef::new(value as &dyn Meta)) {
-        break;
-      }
-    }
-    true
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Map(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -436,12 +495,38 @@ impl Meta for StaticKeyEntryMap {
   }
 }
 
+impl MapAccess for StaticKeyEntryMap {
+  fn len(&self) -> usize {
+    self.entries.len()
+  }
+
+  fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
+    self
+      .entries
+      .iter()
+      .find(|(entry_key, _)| *entry_key == key)
+      .map(|(_, value)| ObjectRef::new(value))
+  }
+
+  fn keys(&self) -> Option<Vec<String>> {
+    None
+  }
+
+  fn visit_entries(&self, visitor: &mut MapEntryVisitor<'_>) {
+    for (key, value) in &self.entries {
+      if !visitor(AnyRef::new(key), ObjectRef::new(value)) {
+        break;
+      }
+    }
+  }
+}
+
 #[test]
 fn map_entries_eq_dyn_fallback_accepts_static_str_keys() {
   let a = StaticKeyEntryMap::new(&[("a", 1), ("b", 2)]);
   let b = StaticKeyEntryMap::new(&[("b", 2), ("a", 1)]);
 
-  assert!(&a as &dyn Meta == &b as &dyn Meta);
+  assert!(ObjectRef::new(&a) == ObjectRef::new(&b));
 }
 
 #[derive(Debug)]
@@ -461,21 +546,8 @@ impl NumericEntryMap {
 }
 
 impl Meta for NumericEntryMap {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Map
-  }
-
-  fn len(&self) -> Option<usize> {
-    Some(self.entries.len())
-  }
-
-  fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
-    for (key, value) in &self.entries {
-      if !visitor(AnyRef::new(key), ObjectRef::new(value as &dyn Meta)) {
-        break;
-      }
-    }
-    true
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Map(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -487,12 +559,34 @@ impl Meta for NumericEntryMap {
   }
 }
 
+impl MapAccess for NumericEntryMap {
+  fn len(&self) -> usize {
+    self.entries.len()
+  }
+
+  fn key(&self, _key: &str) -> Option<ObjectRef<'_>> {
+    None
+  }
+
+  fn keys(&self) -> Option<Vec<String>> {
+    None
+  }
+
+  fn visit_entries(&self, visitor: &mut MapEntryVisitor<'_>) {
+    for (key, value) in &self.entries {
+      if !visitor(AnyRef::new(key), ObjectRef::new(value)) {
+        break;
+      }
+    }
+  }
+}
+
 #[test]
 fn map_entries_eq_dyn_fallback_rejects_non_string_keys() {
   let a = NumericEntryMap::new(&[(1, 7)]);
   let b = NumericEntryMap::new(&[(1, 7)]);
 
-  assert!(&a as &dyn Meta != &b as &dyn Meta);
+  assert!(ObjectRef::new(&a) != ObjectRef::new(&b));
 }
 
 #[test]

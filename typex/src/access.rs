@@ -1,13 +1,13 @@
 use crate::{ObjectRef, TypeInfo};
 // Keep public API names in scope for short intra-doc links.
 #[allow(unused_imports)]
-use crate::{Meta, TypedMapAccess};
+use crate::{Meta, Reflect, TypedMapAccess};
 use core::any::{Any, TypeId};
 use core::fmt;
 
 /// Classifies the structural shape exposed by a [`Meta`] implementation.
 ///
-/// Use [`Meta::access_kind`] and the relevant accessors to discover how a
+/// Use [`ObjectRef::access_kind`] and the relevant accessors to discover how a
 /// value can be traversed.
 ///
 /// # Example
@@ -37,15 +37,21 @@ pub enum ValueKind {
   /// An optional value. `Some(value)` forwards structural access to its inner
   /// value. `None` represents the empty state and has length zero.
   Option,
-  /// A value with named fields exposed through [`Meta::field`] and
-  /// [`Meta::field_names`].
+  /// A value with named fields exposed through [`ObjectRef::field`] and
+  /// [`ObjectRef::field_names`].
   Struct,
-  /// A value with keyed entries exposed through [`Meta::key`], [`Meta::keys`]
-  /// and [`Meta::len`]. [`TypedMapAccess`] provides access for concrete key
+  /// A tuple or tuple struct with positional fields exposed through
+  /// [`ObjectRef::item`] and [`ObjectRef::len`].
+  Tuple,
+  /// An enum value with its active variant exposed through
+  /// [`ObjectRef::variant_name`] and fields accessed by name or index.
+  Enum,
+  /// A value with keyed entries exposed through [`ObjectRef::key`], [`ObjectRef::keys`]
+  /// and [`ObjectRef::len`]. [`TypedMapAccess`] provides access for concrete key
   /// types.
   Map,
-  /// An ordered value with indexed items exposed through [`Meta::item`] and
-  /// [`Meta::len`].
+  /// An ordered value with indexed items exposed through [`ObjectRef::item`] and
+  /// [`ObjectRef::len`].
   Sequence,
 }
 
@@ -67,20 +73,21 @@ pub enum ValueKind {
 /// ```
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AccessKind {
-  /// Access fields by name and enumerate field names via [`Meta::field`] and
-  /// [`Meta::field_names`]. Typically used for structs.
+  /// Access named fields through [`ObjectRef::field`] and
+  /// [`ObjectRef::field_names`]. Reported by [`Reflect::Struct`] and by enums
+  /// whose active variant has named fields or is a unit variant.
   Field,
-  /// Access values by key and enumerate keys and length via [`Meta::key`],
-  /// [`Meta::keys`] and [`Meta::len`]. Typically used for maps.
+  /// Access values by key and enumerate keys and length via [`ObjectRef::key`],
+  /// [`ObjectRef::keys`] and [`ObjectRef::len`]. Reported by [`Reflect::Map`].
   Key,
-  /// Access items by index and report their length via [`Meta::item`] and
-  /// [`Meta::len`]. Typically used for sequences.
-  Item,
-  /// Access items by key or by index via [`Meta::key`] and [`Meta::item`],
-  /// and enumerate keys and length via [`Meta::keys`] and [`Meta::len`]. Each
-  /// key is unique. Typically used for ordered collections with key and index
-  /// access.
-  ItemKey,
+  /// Access values by index and report their length via [`ObjectRef::item`] and
+  /// [`ObjectRef::len`]. Reported by [`Reflect::Sequence`], [`Reflect::Tuple`]
+  /// and enums whose active variant is a tuple variant.
+  Index,
+  /// Access items by key or by index via [`ObjectRef::key`] and [`ObjectRef::item`],
+  /// and enumerate keys and length via [`ObjectRef::keys`] and [`ObjectRef::len`].
+  /// Each key is unique. Reported by [`Reflect::KeyedSequence`].
+  KeyedItem,
 }
 
 /// Borrowed, type-erased reference to a value that exposes runtime type
@@ -96,6 +103,7 @@ pub enum AccessKind {
 /// assert!(value_ref.is::<u32>());
 /// assert_eq!(value_ref.to_ref::<u32>(), Some(&value));
 /// assert_eq!(value_ref.type_info(), TypeInfo::of::<u32>());
+/// assert_eq!(value_ref.type_id(), core::any::TypeId::of::<u32>());
 /// ```
 #[derive(Clone, Copy)]
 pub struct AnyRef<'a> {
@@ -119,22 +127,22 @@ impl<'a> AnyRef<'a> {
 
   /// Returns the Rust type name of the referenced value.
   pub fn type_name(&self) -> &'static str {
-    self.info.type_name()
+    self.info.name()
   }
 
-  /// Returns the unique type ID of the referenced value.
-  pub fn id(&self) -> TypeId {
+  /// Returns the referenced value's [`TypeId`].
+  pub fn type_id(&self) -> TypeId {
     self.info.id()
-  }
-
-  /// Downcasts the referenced value to `T`.
-  pub fn to_ref<T: 'static>(&self) -> Option<&'a T> {
-    self.any.downcast_ref::<T>()
   }
 
   /// Checks whether the referenced value has type `T`.
   pub fn is<T: 'static>(&self) -> bool {
     self.info == TypeInfo::of::<T>()
+  }
+
+  /// Downcasts the referenced value to `T`.
+  pub fn to_ref<T: 'static>(&self) -> Option<&'a T> {
+    self.any.downcast_ref::<T>()
   }
 }
 

@@ -6,11 +6,19 @@
 //!
 //! - Reflection traits: [`Meta`] and [`MetaMut`]
 //! - Owned objects: [`Object`], [`ObjectMut`] and [`SendObject`]
-//! - Object traits: [`ObjectOps`], [`FieldPath`] and [`FieldPathMut`]
+//! - Object trait: [`ObjectOps`]
 //! - Borrowed views: [`ObjectRef`] and [`ObjectRefMut`]
+//! - Typed map access: [`TypedMapAccess`] and [`TypedMapAccessMut`]
 //! - Paths: [`PathSegment`], [`OwnedPath`] and [`TypedPath`]
 //! - Mutations: [`PatchOperation`], [`MutationBatch`] and [`MutationRollback`]
 //! - Type metadata: [`TypeInfo`], [`ValueKind`] and [`AccessKind`]
+//! - Structural shapes: [`Reflect`] and [`ReflectMut`]
+//! - Shape access: [`StructAccess`], [`TupleAccess`], [`EnumAccess`],
+//!   [`SequenceAccess`], [`KeyedSequenceAccess`] and [`MapAccess`], with
+//!   [`VariantFields`] for the fields of an enum variant
+//! - Mutable shape access: [`StructAccessMut`], [`TupleAccessMut`],
+//!   [`EnumAccessMut`], [`SequenceAccessMut`], [`KeyedSequenceAccessMut`],
+//!   [`MapAccessMut`] and [`OptionAccessMut`], with [`VariantFieldsMut`]
 //! - Type-keyed maps: [`TypeMap`]
 //!
 //! ## Derive macros
@@ -18,6 +26,29 @@
 //! The [`Meta`] and [`MetaMut`] derive macros are provided by
 //! [`typex_derive`](https://docs.rs/typex_derive). Enable the `derive` feature
 //! to use them as [`Meta`] and [`MetaMut`].
+//!
+//! ## Structural equality
+//!
+//! [`Meta::eq_dyn`] compares values with matching runtime type metadata. Its
+//! default implementation dispatches on the shape from [`Meta::reflect`]:
+//!
+//! - [`Reflect::Struct`] compares field names, then fields by name.
+//! - [`Reflect::Tuple`] compares lengths, then fields by index.
+//! - [`Reflect::Enum`] compares active variant names, then their fields by
+//!   name or index.
+//! - [`Reflect::Map`] compares lengths, then looks up each visited key by
+//!   string. It supports `String` and `&'static str` keys.
+//! - [`Reflect::Sequence`] and [`Reflect::KeyedSequence`] compare lengths,
+//!   then items by index.
+//! - [`Reflect::Option`] compares presence and inner values.
+//! - [`Reflect::Scalar`] returns `false`; scalar implementations provide
+//!   their own value comparisons.
+//!
+//! Built-in scalars, tuples, `Result` and the derives compare values directly,
+//! avoiding dispatch through the access traits. `BTreeMap` and `HashMap`
+//! compare native keys and reflective values. Custom opaque values provide
+//! equality through `#[typex(partial_eq)]` or a hand-written implementation.
+//! Float equality follows `PartialEq`, so `NaN != NaN`.
 //!
 //! ## Feature flags
 //!
@@ -98,6 +129,7 @@ mod mutation_batch;
 mod objects;
 mod patch;
 mod path;
+mod reflect;
 mod type_info;
 mod type_map;
 
@@ -106,6 +138,7 @@ pub use mutation_batch::*;
 pub use objects::*;
 pub use patch::*;
 pub use path::*;
+pub use reflect::*;
 pub use traits::*;
 pub use type_info::TypeInfo;
 pub use type_map::*;

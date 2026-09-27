@@ -72,26 +72,31 @@ fn expand_meta(input: &DeriveInput) -> syn::Result<TokenStream2> {
     }
   });
 
-  let (body, path_constants, mut generics) = if options.opaque {
-    let body = quote! {
-      fn kind(&self) -> ::typex::ValueKind {
-        ::typex::ValueKind::Scalar
-      }
+  let (access, structural_eq_fn, path_constants, mut generics) = if options.opaque {
+    let access = Access {
+      shape: quote! { ::typex::Reflect::Scalar },
+      impls: Vec::new(),
+      overrides: quote! {},
     };
-    (body, quote! {}, input.generics.clone())
+    (access, None, quote! {}, input.generics.clone())
   } else {
-    let body = match &input.data {
+    let access = match &input.data {
       Data::Struct(data) => struct_meta(data),
       Data::Enum(data) => enum_meta(data),
       Data::Union(_) => unreachable!("unions are rejected above"),
     };
+    let eq = (!options.partial_eq).then(|| match &input.data {
+      Data::Struct(data) => struct_eq(data),
+      Data::Enum(data) => enum_eq(data),
+      Data::Union(_) => unreachable!("unions are rejected above"),
+    });
     let constants = match &input.data {
       Data::Struct(data) => struct_path_constants(input, data),
       Data::Enum(data) => enum_path_constants(input, data),
       Data::Union(_) => unreachable!("unions are rejected above"),
     };
     let generics = bounded_generics(input, quote!(::typex::Meta));
-    (body, constants, generics)
+    (access, eq, constants, generics)
   };
 
   let where_clause = generics.make_where_clause();
@@ -104,11 +109,21 @@ fn expand_meta(input: &DeriveInput) -> syn::Result<TokenStream2> {
 
   let name = &input.ident;
   let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+  // `partial_eq` takes precedence over the generated structural comparison.
+  let eq_fn = partial_eq_fn.or(structural_eq_fn);
+  let shape = access.shape;
+  let overrides = access.overrides;
+  let access_impls = generate_access_impls(&access.impls, name, &generics);
 
   Ok(quote! {
     impl #impl_generics ::typex::Meta for #name #ty_generics #where_clause {
-      #body
-      #partial_eq_fn
+      fn reflect(&self) -> ::typex::Reflect<'_> {
+        #shape
+      }
+
+      #eq_fn
+
+      #overrides
 
       fn into_any(
         self: ::typex::__private::Box<Self>,
@@ -121,6 +136,8 @@ fn expand_meta(input: &DeriveInput) -> syn::Result<TokenStream2> {
       }
     }
 
+    #access_impls
+
     #path_constants
   })
 }
@@ -129,15 +146,20 @@ fn expand_meta_mut(input: &DeriveInput) -> syn::Result<TokenStream2> {
   let options = typex_options(&input.attrs)?;
   reject_union(input, "MetaMut")?;
 
-  let (body, mut generics) = if options.opaque {
-    (quote! {}, input.generics.clone())
+  let (access, mut generics) = if options.opaque {
+    let access = Access {
+      shape: quote! { ::typex::ReflectMut::Opaque },
+      impls: Vec::new(),
+      overrides: quote! {},
+    };
+    (access, input.generics.clone())
   } else {
-    let body = match &input.data {
+    let access = match &input.data {
       Data::Struct(data) => struct_meta_mut(data),
       Data::Enum(data) => enum_meta_mut(data),
       Data::Union(_) => unreachable!("unions are rejected above"),
     };
-    (body, bounded_generics(input, quote!(::typex::MetaMut)))
+    (access, bounded_generics(input, quote!(::typex::MetaMut)))
   };
   generics
     .make_where_clause()
@@ -146,16 +168,23 @@ fn expand_meta_mut(input: &DeriveInput) -> syn::Result<TokenStream2> {
 
   let name = &input.ident;
   let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+  let shape = access.shape;
+  let overrides = access.overrides;
+  let access_impls = generate_access_impls(&access.impls, name, &generics);
 
   Ok(quote! {
     impl #impl_generics ::typex::MetaMut for #name #ty_generics #where_clause {
-      #body
+      fn reflect_mut(&mut self) -> ::typex::ReflectMut<'_> {
+        #shape
+      }
 
-      fn replace(
+      #overrides
+
+      fn replace_dyn(
         &mut self,
         __typex_value: ::typex::Object,
       ) -> ::core::result::Result<::typex::Object, ::typex::Object> {
-        if !::typex::Meta::as_any(&*__typex_value).is::<Self>() {
+        if !::typex::ObjectOps::is::<Self>(&__typex_value) {
           return ::core::result::Result::Err(__typex_value);
         }
 
@@ -168,11 +197,11 @@ fn expand_meta_mut(input: &DeriveInput) -> syn::Result<TokenStream2> {
         )))
       }
 
-      fn set(
+      fn set_dyn(
         &mut self,
         __typex_value: ::typex::Object,
       ) -> ::core::result::Result<(), ::typex::Object> {
-        if !::typex::Meta::as_any(&*__typex_value).is::<Self>() {
+        if !::typex::ObjectOps::is::<Self>(&__typex_value) {
           return ::core::result::Result::Err(__typex_value);
         }
 
@@ -190,6 +219,8 @@ fn expand_meta_mut(input: &DeriveInput) -> syn::Result<TokenStream2> {
         self
       }
     }
+
+    #access_impls
   })
 }
 
@@ -374,8 +405,18 @@ fn binding(index: usize) -> Ident {
   format_ident!("__typex_field_{}", index)
 }
 
+fn other_binding(index: usize) -> Ident {
+  format_ident!("__typex_other_{}", index)
+}
+
 /// Returns a pattern that binds every field of `variant` to `__typex_field_N`.
 fn variant_bindings(variant: &Variant) -> TokenStream2 {
+  variant_pattern(variant, binding)
+}
+
+/// Returns a pattern that binds every field of `variant` to the name that
+/// `binding` returns for its index.
+fn variant_pattern(variant: &Variant, binding: fn(usize) -> Ident) -> TokenStream2 {
   let ident = &variant.ident;
   match &variant.fields {
     Fields::Named(fields) => {
@@ -392,6 +433,63 @@ fn variant_bindings(variant: &Variant) -> TokenStream2 {
     }
     Fields::Unit => quote! { Self::#ident },
   }
+}
+
+/// Generates an `eq_dyn` that evaluates `body` with `__typex_other`
+/// downcast to `Self`.
+///
+/// The result matches the default structural comparison, which compares the
+/// same exposed fields by name, without dispatching through the access traits.
+fn eq_dyn_fn(body: TokenStream2) -> TokenStream2 {
+  quote! {
+    fn eq_dyn(&self, __typex_other: &dyn ::typex::Meta) -> ::core::primitive::bool {
+      match ::typex::Meta::as_any(__typex_other).downcast_ref::<Self>() {
+        ::core::option::Option::Some(__typex_other) => #body,
+        ::core::option::Option::None => false,
+      }
+    }
+  }
+}
+
+/// Returns `true` followed by an `eq_dyn` comparison for each pair of fields.
+fn fields_eq(pairs: impl Iterator<Item = (TokenStream2, TokenStream2)>) -> TokenStream2 {
+  let comparisons = pairs.map(|(left, right)| {
+    quote! { && ::typex::Meta::eq_dyn(#left, #right) }
+  });
+  quote! { true #(#comparisons)* }
+}
+
+fn struct_eq(data: &DataStruct) -> TokenStream2 {
+  let body = fields_eq(data.fields.iter().enumerate().map(|(index, field)| {
+    let member = field_member(index, field.ident.as_ref());
+    (quote! { &self.#member }, quote! { &__typex_other.#member })
+  }));
+  eq_dyn_fn(body)
+}
+
+fn enum_eq(data: &DataEnum) -> TokenStream2 {
+  let arms = data.variants.iter().map(|variant| {
+    let pattern = variant_pattern(variant, binding);
+    let other_pattern = variant_pattern(variant, other_binding);
+    let body = fields_eq((0..variant.fields.len()).map(|index| {
+      let (left, right) = (binding(index), other_binding(index));
+      (quote! { #left }, quote! { #right })
+    }));
+    quote! { (#pattern, #other_pattern) => #body }
+  });
+  // A single variant always matches, so a fallback arm would be unreachable.
+  let fallback = (data.variants.len() > 1).then(|| quote! { _ => false, });
+  let body = if data.variants.is_empty() {
+    quote! { match *self {} }
+  } else {
+    quote! {
+      match (self, __typex_other) {
+        #(#arms,)*
+        #fallback
+      }
+    }
+  };
+  eq_dyn_fn(body)
 }
 
 fn variant_wildcard(variant: &Variant) -> TokenStream2 {
@@ -425,7 +523,7 @@ fn struct_path_constants(input: &DeriveInput, data: &DataStruct) -> TokenStream2
 fn enum_path_constants(input: &DeriveInput, data: &DataEnum) -> TokenStream2 {
   let constants = data.variants.iter().flat_map(|variant| {
     let variant_name = reflective_name(&variant.ident);
-    let variant_segment = quote! { ::typex::PathSegment::Field(#variant_name) };
+    let variant_segment = quote! { ::typex::PathSegment::Variant(#variant_name) };
     let variant_constant = path_constant(&[&variant_name], variant.ident.span());
 
     let field_constants = variant
@@ -476,135 +574,163 @@ fn path_constants_impl(
   }
 }
 
-fn struct_meta(data: &DataStruct) -> TokenStream2 {
-  let keys = data
-    .fields
-    .iter()
-    .enumerate()
-    .map(|(index, field)| field_key(index, field.ident.as_ref()))
-    .collect::<Vec<_>>();
-  let members = data
-    .fields
-    .iter()
-    .enumerate()
-    .map(|(index, field)| field_member(index, field.ident.as_ref()))
-    .collect::<Vec<_>>();
+/// Generated shape expression and access trait implementations, each given as
+/// the trait path and the implementation body.
+struct Access {
+  shape: TokenStream2,
+  impls: Vec<(TokenStream2, TokenStream2)>,
+  /// Methods that override defaults of `Meta` or `MetaMut`.
+  overrides: TokenStream2,
+}
 
-  let access_kind_fn = (!data.fields.is_empty()).then(|| {
+fn generate_access_impls(
+  impls: &[(TokenStream2, TokenStream2)],
+  name: &Ident,
+  generics: &Generics,
+) -> TokenStream2 {
+  let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+  let impls = impls.iter().map(|(trait_path, body)| {
     quote! {
-      fn access_kind(&self) -> ::core::option::Option<::typex::AccessKind> {
-        ::core::option::Option::Some(::typex::AccessKind::Field)
+      impl #impl_generics #trait_path for #name #ty_generics #where_clause {
+        #body
       }
     }
   });
+  quote! { #(#impls)* }
+}
 
-  let (item_arms, len) = match &data.fields {
-    Fields::Unnamed(fields) => {
-      let arms = members.iter().enumerate().map(|(index, member)| {
-        quote! {
-          #index => ::core::option::Option::Some(
-            ::typex::ObjectRef::new(&self.#member as &dyn ::typex::Meta),
-          )
-        }
-      });
-      let len = fields.unnamed.len();
-      (
-        arms.collect::<Vec<_>>(),
-        quote! { ::core::option::Option::Some(#len) },
-      )
-    }
-    _ => (Vec::new(), quote! { ::core::option::Option::None }),
+fn collect_named_keys(fields: &syn::FieldsNamed) -> Vec<String> {
+  fields
+    .named
+    .iter()
+    .map(|field| reflective_name(field.ident.as_ref().unwrap()))
+    .collect()
+}
+
+/// Generates a lookup by name or index that wraps the selected struct field
+/// with `constructor`, borrowing it through `receiver`.
+fn generate_struct_lookup(
+  fields: &Fields,
+  constructor: TokenStream2,
+  receiver: TokenStream2,
+) -> TokenStream2 {
+  let selector = match fields {
+    Fields::Unnamed(_) => quote! { __typex_index },
+    _ => quote! { __typex_name },
   };
-
+  let arms = fields.iter().enumerate().map(|(index, field)| {
+    let member = field_member(index, field.ident.as_ref());
+    let key = match &field.ident {
+      Some(ident) => {
+        let name = reflective_name(ident);
+        quote! { #name }
+      }
+      None => quote! { #index },
+    };
+    quote! { #key => ::core::option::Option::Some(#constructor(#receiver.#member)), }
+  });
   quote! {
-    fn kind(&self) -> ::typex::ValueKind {
-      ::typex::ValueKind::Struct
-    }
-
-    #access_kind_fn
-
-    fn field(
-      &self,
-      __typex_name: &::core::primitive::str,
-    ) -> ::core::option::Option<::typex::ObjectRef<'_>> {
-      match __typex_name {
-        #(#keys => ::core::option::Option::Some(
-          ::typex::ObjectRef::new(&self.#members as &dyn ::typex::Meta),
-        ),)*
-        _ => ::core::option::Option::None,
-      }
-    }
-
-    fn field_names(&self) -> &'static [&'static ::core::primitive::str] {
-      &[#(#keys),*]
-    }
-
-    fn item(
-      &self,
-      __typex_index: ::core::primitive::usize,
-    ) -> ::core::option::Option<::typex::ObjectRef<'_>> {
-      match __typex_index {
-        #(#item_arms,)*
-        _ => ::core::option::Option::None,
-      }
-    }
-
-    fn len(&self) -> ::core::option::Option<::core::primitive::usize> {
-      #len
+    match #selector {
+      #(#arms)*
+      _ => ::core::option::Option::None,
     }
   }
 }
 
-fn struct_meta_mut(data: &DataStruct) -> TokenStream2 {
-  let keys = data
-    .fields
-    .iter()
-    .enumerate()
-    .map(|(index, field)| field_key(index, field.ident.as_ref()))
-    .collect::<Vec<_>>();
-  let members = data
-    .fields
-    .iter()
-    .enumerate()
-    .map(|(index, field)| field_member(index, field.ident.as_ref()))
-    .collect::<Vec<_>>();
-  let item_arms = match &data.fields {
-    Fields::Unnamed(_) => members
-      .iter()
-      .enumerate()
-      .map(|(index, member)| {
+fn struct_meta(data: &DataStruct) -> Access {
+  let lookup = generate_struct_lookup(
+    &data.fields,
+    quote! { ::typex::ObjectRef::new },
+    quote! { &self },
+  );
+  match &data.fields {
+    Fields::Unnamed(fields) => {
+      let len = fields.unnamed.len();
+      Access {
+        shape: quote! { ::typex::Reflect::Tuple(self) },
+        overrides: quote! {},
+        impls: vec![(
+          quote! { ::typex::TupleAccess },
+          quote! {
+            fn item(
+              &self,
+              __typex_index: ::core::primitive::usize,
+            ) -> ::core::option::Option<::typex::ObjectRef<'_>> {
+              #lookup
+            }
+
+            fn len(&self) -> ::core::primitive::usize {
+              #len
+            }
+          },
+        )],
+      }
+    }
+    fields => {
+      let keys = match fields {
+        Fields::Named(fields) => collect_named_keys(fields),
+        _ => Vec::new(),
+      };
+      Access {
+        shape: quote! { ::typex::Reflect::Struct(self) },
+        overrides: quote! {},
+        impls: vec![(
+          quote! { ::typex::StructAccess },
+          quote! {
+            fn field(
+              &self,
+              __typex_name: &::core::primitive::str,
+            ) -> ::core::option::Option<::typex::ObjectRef<'_>> {
+              #lookup
+            }
+
+            fn field_names(&self) -> &'static [&'static ::core::primitive::str] {
+              &[#(#keys),*]
+            }
+          },
+        )],
+      }
+    }
+  }
+}
+
+fn struct_meta_mut(data: &DataStruct) -> Access {
+  let lookup = generate_struct_lookup(
+    &data.fields,
+    quote! { ::typex::ObjectRefMut::new },
+    quote! { &mut self },
+  );
+  match &data.fields {
+    Fields::Unnamed(_) => Access {
+      shape: quote! { ::typex::ReflectMut::Tuple(self) },
+      overrides: quote! {},
+      impls: vec![(
+        quote! { ::typex::TupleAccessMut },
         quote! {
-          #index => ::core::option::Option::Some(
-            ::typex::ObjectRefMut::new(&mut self.#member as &mut dyn ::typex::MetaMut),
-          )
-        }
-      })
-      .collect::<Vec<_>>(),
-    _ => Vec::new(),
-  };
-
-  quote! {
-    fn field_mut(
-      &mut self,
-      __typex_name: &::core::primitive::str,
-    ) -> ::core::option::Option<::typex::ObjectRefMut<'_>> {
-      match __typex_name {
-        #(#keys => ::core::option::Option::Some(
-          ::typex::ObjectRefMut::new(&mut self.#members as &mut dyn ::typex::MetaMut),
-        ),)*
-        _ => ::core::option::Option::None,
-      }
-    }
-
-    fn item_mut(
-      &mut self,
-      __typex_index: ::core::primitive::usize,
-    ) -> ::core::option::Option<::typex::ObjectRefMut<'_>> {
-      match __typex_index {
-        #(#item_arms,)*
-        _ => ::core::option::Option::None,
-      }
-    }
+          fn item_mut(
+            &mut self,
+            __typex_index: ::core::primitive::usize,
+          ) -> ::core::option::Option<::typex::ObjectRefMut<'_>> {
+            #lookup
+          }
+        },
+      )],
+    },
+    _ => Access {
+      shape: quote! { ::typex::ReflectMut::Struct(self) },
+      overrides: quote! {},
+      impls: vec![(
+        quote! { ::typex::StructAccessMut },
+        quote! {
+          fn field_mut(
+            &mut self,
+            __typex_name: &::core::primitive::str,
+          ) -> ::core::option::Option<::typex::ObjectRefMut<'_>> {
+            #lookup
+          }
+        },
+      )],
+    },
   }
 }
 
@@ -618,127 +744,222 @@ fn match_self(data: &DataEnum, arms: Vec<TokenStream2>) -> TokenStream2 {
   }
 }
 
-fn enum_meta(data: &DataEnum) -> TokenStream2 {
-  let field_arms = data
+/// Returns a `match` over `self` with one arm per variant. `arm` returns the
+/// arm for a variant of the matching kind, and other variants yield `fallback`.
+fn match_variants(
+  data: &DataEnum,
+  arm: impl Fn(&Variant) -> Option<TokenStream2>,
+  fallback: TokenStream2,
+) -> TokenStream2 {
+  let arms = data
     .variants
     .iter()
     .map(|variant| {
-      let pattern = variant_bindings(variant);
-      let variant_name = reflective_name(&variant.ident);
-      let keys = variant
-        .fields
-        .iter()
-        .enumerate()
-        .map(|(index, field)| field_key(index, field.ident.as_ref()));
-      let bindings = (0..variant.fields.len()).map(binding);
-      quote! {
-        #pattern => match __typex_name {
-          #variant_name => ::core::option::Option::Some(
-            ::typex::ObjectRef::new(self as &dyn ::typex::Meta),
-          ),
-          #(#keys => ::core::option::Option::Some(
-            ::typex::ObjectRef::new(#bindings as &dyn ::typex::Meta),
-          ),)*
-          _ => ::core::option::Option::None,
-        }
-      }
-    })
-    .collect();
-
-  let field_names_arms = data
-    .variants
-    .iter()
-    .map(|variant| {
-      let pattern = variant_wildcard(variant);
-      let variant_name = reflective_name(&variant.ident);
-      let keys = variant
-        .fields
-        .iter()
-        .enumerate()
-        .map(|(index, field)| field_key(index, field.ident.as_ref()));
-      quote! { #pattern => &[#variant_name, #(#keys),*] }
-    })
-    .collect();
-
-  let item_arms = data
-    .variants
-    .iter()
-    .map(|variant| match &variant.fields {
-      Fields::Unnamed(fields) => {
-        let pattern = variant_bindings(variant);
-        let indices = 0..fields.unnamed.len();
-        let bindings = indices.clone().map(binding);
-        quote! {
-          #pattern => match __typex_index {
-            #(#indices => ::core::option::Option::Some(
-              ::typex::ObjectRef::new(#bindings as &dyn ::typex::Meta),
-            ),)*
-            _ => ::core::option::Option::None,
-          }
-        }
-      }
-      _ => {
+      arm(variant).unwrap_or_else(|| {
         let pattern = variant_wildcard(variant);
-        quote! { #pattern => ::core::option::Option::None }
-      }
+        quote! { #pattern => #fallback }
+      })
     })
     .collect();
+  match_self(data, arms)
+}
 
-  let len_arms = data
+fn has_named_variants(data: &DataEnum) -> bool {
+  data
+    .variants
+    .iter()
+    .any(|variant| matches!(variant.fields, Fields::Named(_)))
+}
+
+fn has_tuple_variants(data: &DataEnum) -> bool {
+  data
+    .variants
+    .iter()
+    .any(|variant| matches!(variant.fields, Fields::Unnamed(_)))
+}
+
+/// Generates the arm of a `field` or `field_mut` match for a variant with named
+/// fields, wrapping each binding with `constructor`.
+fn generate_named_variant_arm(
+  variant: &Variant,
+  constructor: &TokenStream2,
+) -> Option<TokenStream2> {
+  let Fields::Named(fields) = &variant.fields else {
+    return None;
+  };
+  let pattern = variant_bindings(variant);
+  let keys = collect_named_keys(fields);
+  let bindings = (0..fields.named.len()).map(binding);
+  Some(quote! {
+    #pattern => match __typex_name {
+      #(#keys => ::core::option::Option::Some(#constructor(#bindings)),)*
+      _ => ::core::option::Option::None,
+    }
+  })
+}
+
+/// Generates the arm of an `item` or `item_mut` match for a tuple variant,
+/// wrapping each binding with `constructor`.
+fn generate_tuple_variant_arm(
+  variant: &Variant,
+  constructor: &TokenStream2,
+) -> Option<TokenStream2> {
+  let Fields::Unnamed(fields) = &variant.fields else {
+    return None;
+  };
+  let pattern = variant_bindings(variant);
+  let indices = 0..fields.unnamed.len();
+  let bindings = indices.clone().map(binding);
+  Some(quote! {
+    #pattern => match __typex_index {
+      #(#indices => ::core::option::Option::Some(#constructor(#bindings)),)*
+      _ => ::core::option::Option::None,
+    }
+  })
+}
+
+/// Generates a `match` over `self` that wraps `self` in the `fields_type` variant
+/// matching the kind of the active variant.
+fn generate_variant_fields(data: &DataEnum, fields_type: TokenStream2) -> TokenStream2 {
+  let arms = data
     .variants
     .iter()
     .map(|variant| {
       let pattern = variant_wildcard(variant);
       match &variant.fields {
-        Fields::Unnamed(fields) => {
-          let len = fields.unnamed.len();
-          quote! { #pattern => ::core::option::Option::Some(#len) }
-        }
-        _ => quote! { #pattern => ::core::option::Option::None },
+        Fields::Named(_) => quote! { #pattern => #fields_type::Named(self) },
+        Fields::Unnamed(_) => quote! { #pattern => #fields_type::Positional(self) },
+        Fields::Unit => quote! { #pattern => #fields_type::Unit },
       }
     })
     .collect();
+  match_self(data, arms)
+}
 
-  let field_body = match_self(data, field_arms);
-  let field_names_body = match_self(data, field_names_arms);
-  let item_body = match_self(data, item_arms);
-  let len_body = match_self(data, len_arms);
+fn enum_meta(data: &DataEnum) -> Access {
+  let variant_name = generate_enum_variant_name(data);
+  let fields = generate_variant_fields(data, quote! { ::typex::VariantFields });
+  let mut impls = vec![(
+    quote! { ::typex::EnumAccess },
+    quote! {
+      fn variant_name(&self) -> &'static ::core::primitive::str {
+        #variant_name
+      }
 
-  quote! {
-    fn kind(&self) -> ::typex::ValueKind {
-      ::typex::ValueKind::Struct
-    }
+      fn fields(&self) -> ::typex::VariantFields<'_> {
+        #fields
+      }
+    },
+  )];
 
-    fn access_kind(&self) -> ::core::option::Option<::typex::AccessKind> {
-      ::core::option::Option::Some(::typex::AccessKind::Field)
-    }
+  let constructor = quote! { ::typex::ObjectRef::new };
+  if has_named_variants(data) {
+    let field_body = match_variants(
+      data,
+      |variant| generate_named_variant_arm(variant, &constructor),
+      quote! { ::core::option::Option::None },
+    );
+    let names_body = match_variants(
+      data,
+      |variant| {
+        let Fields::Named(fields) = &variant.fields else {
+          return None;
+        };
+        let pattern = variant_wildcard(variant);
+        let keys = collect_named_keys(fields);
+        Some(quote! { #pattern => &[#(#keys),*] })
+      },
+      quote! { &[] },
+    );
+    impls.push((
+      quote! { ::typex::StructAccess },
+      quote! {
+        fn field(
+          &self,
+          __typex_name: &::core::primitive::str,
+        ) -> ::core::option::Option<::typex::ObjectRef<'_>> {
+          #field_body
+        }
 
-    fn field(
+        fn field_names(&self) -> &'static [&'static ::core::primitive::str] {
+          #names_body
+        }
+      },
+    ));
+  }
+
+  if has_tuple_variants(data) {
+    let item_body = match_variants(
+      data,
+      |variant| generate_tuple_variant_arm(variant, &constructor),
+      quote! { ::core::option::Option::None },
+    );
+    let len_body = match_variants(
+      data,
+      |variant| {
+        let Fields::Unnamed(fields) = &variant.fields else {
+          return None;
+        };
+        let pattern = variant_wildcard(variant);
+        let len = fields.unnamed.len();
+        Some(quote! { #pattern => #len })
+      },
+      quote! { 0 },
+    );
+    impls.push((
+      quote! { ::typex::TupleAccess },
+      quote! {
+        fn item(
+          &self,
+          __typex_index: ::core::primitive::usize,
+        ) -> ::core::option::Option<::typex::ObjectRef<'_>> {
+          #item_body
+        }
+
+        fn len(&self) -> ::core::primitive::usize {
+          #len_body
+        }
+      },
+    ));
+  }
+
+  // Comparing against each variant's name as a literal lets the compiler
+  // inline the comparison. The default compares against the name returned by
+  // `variant_name`, which calls `memcmp`.
+  let variant_arms = data
+    .variants
+    .iter()
+    .map(|variant| {
+      let pattern = variant_wildcard(variant);
+      let variant_name = reflective_name(&variant.ident);
+      quote! { #pattern => __typex_name == #variant_name }
+    })
+    .collect();
+  let is_variant_body = if data.variants.is_empty() {
+    quote! { match *self {} }
+  } else {
+    let matched = match_self(data, variant_arms);
+    quote! { ::core::option::Option::Some(#matched) }
+  };
+  let overrides = quote! {
+    fn is_variant_dyn(
       &self,
       __typex_name: &::core::primitive::str,
-    ) -> ::core::option::Option<::typex::ObjectRef<'_>> {
-      #field_body
+    ) -> ::core::option::Option<::core::primitive::bool> {
+      #is_variant_body
     }
+  };
 
-    fn field_names(&self) -> &'static [&'static ::core::primitive::str] {
-      #field_names_body
-    }
-
-    fn item(
-      &self,
-      __typex_index: ::core::primitive::usize,
-    ) -> ::core::option::Option<::typex::ObjectRef<'_>> {
-      #item_body
-    }
-
-    fn len(&self) -> ::core::option::Option<::core::primitive::usize> {
-      #len_body
-    }
+  Access {
+    shape: quote! { ::typex::Reflect::Enum(self) },
+    impls,
+    overrides,
   }
 }
 
-fn enum_meta_mut(data: &DataEnum) -> TokenStream2 {
-  let variant_name_arms = data
+/// Generates a `match` over `self` that yields the active variant name.
+fn generate_enum_variant_name(data: &DataEnum) -> TokenStream2 {
+  let arms = data
     .variants
     .iter()
     .map(|variant| {
@@ -747,85 +968,91 @@ fn enum_meta_mut(data: &DataEnum) -> TokenStream2 {
       quote! { #pattern => #variant_name }
     })
     .collect();
+  match_self(data, arms)
+}
 
-  let field_arms = data
-    .variants
-    .iter()
-    .map(|variant| {
-      let pattern = variant_bindings(variant);
-      let keys = variant
-        .fields
-        .iter()
-        .enumerate()
-        .map(|(index, field)| field_key(index, field.ident.as_ref()));
-      let bindings = (0..variant.fields.len()).map(binding);
-      quote! {
-        #pattern => match __typex_name {
-          #(#keys => ::core::option::Option::Some(
-            ::typex::ObjectRefMut::new(#bindings as &mut dyn ::typex::MetaMut),
-          ),)*
-          _ => ::core::option::Option::None,
-        }
-      }
-    })
-    .collect();
-
-  let item_arms = data
-    .variants
-    .iter()
-    .map(|variant| match &variant.fields {
-      Fields::Unnamed(fields) => {
-        let pattern = variant_bindings(variant);
-        let indices = 0..fields.unnamed.len();
-        let bindings = indices.clone().map(binding);
-        quote! {
-          #pattern => match __typex_index {
-            #(#indices => ::core::option::Option::Some(
-              ::typex::ObjectRefMut::new(#bindings as &mut dyn ::typex::MetaMut),
-            ),)*
-            _ => ::core::option::Option::None,
-          }
-        }
-      }
-      _ => {
-        let pattern = variant_wildcard(variant);
-        quote! { #pattern => ::core::option::Option::None }
-      }
-    })
-    .collect();
-
-  // Resolve the variant name before borrowing fields so that the variant-name
-  // result can borrow `self` mutably without overlapping the field borrows.
-  let field_body = if data.variants.is_empty() {
-    quote! { match *self {} }
-  } else {
-    let variant_name_body = match_self(data, variant_name_arms);
-    let field_match = match_self(data, field_arms);
+fn enum_meta_mut(data: &DataEnum) -> Access {
+  let fields = generate_variant_fields(data, quote! { ::typex::VariantFieldsMut });
+  let mut impls = vec![(
+    quote! { ::typex::EnumAccessMut },
     quote! {
-      let __typex_variant: &'static ::core::primitive::str = #variant_name_body;
-      if __typex_name == __typex_variant {
-        return ::core::option::Option::Some(
-          ::typex::ObjectRefMut::new(self as &mut dyn ::typex::MetaMut),
-        );
+      fn fields_mut(&mut self) -> ::typex::VariantFieldsMut<'_> {
+        #fields
       }
-      #field_match
-    }
-  };
-  let item_body = match_self(data, item_arms);
+    },
+  )];
 
-  quote! {
-    fn field_mut(
+  let constructor = quote! { ::typex::ObjectRefMut::new };
+  if has_named_variants(data) {
+    let field_body = match_variants(
+      data,
+      |variant| generate_named_variant_arm(variant, &constructor),
+      quote! { ::core::option::Option::None },
+    );
+    impls.push((
+      quote! { ::typex::StructAccessMut },
+      quote! {
+        fn field_mut(
+          &mut self,
+          __typex_name: &::core::primitive::str,
+        ) -> ::core::option::Option<::typex::ObjectRefMut<'_>> {
+          #field_body
+        }
+      },
+    ));
+  }
+
+  if has_tuple_variants(data) {
+    let item_body = match_variants(
+      data,
+      |variant| generate_tuple_variant_arm(variant, &constructor),
+      quote! { ::core::option::Option::None },
+    );
+    impls.push((
+      quote! { ::typex::TupleAccessMut },
+      quote! {
+        fn item_mut(
+          &mut self,
+          __typex_index: ::core::primitive::usize,
+        ) -> ::core::option::Option<::typex::ObjectRefMut<'_>> {
+          #item_body
+        }
+      },
+    ));
+  }
+
+  // The defaults would match on the active variant twice per lookup: for its
+  // fields and in the field access itself. Mutable borrows prevent the
+  // compiler from merging these matches.
+  let field_lookup = if has_named_variants(data) {
+    quote! { ::typex::StructAccessMut::field_mut(self, __typex_name) }
+  } else {
+    quote! { ::core::option::Option::None }
+  };
+  let item_lookup = if has_tuple_variants(data) {
+    quote! { ::typex::TupleAccessMut::item_mut(self, __typex_index) }
+  } else {
+    quote! { ::core::option::Option::None }
+  };
+  let overrides = quote! {
+    fn field_mut_dyn(
       &mut self,
       __typex_name: &::core::primitive::str,
     ) -> ::core::option::Option<::typex::ObjectRefMut<'_>> {
-      #field_body
+      #field_lookup
     }
 
-    fn item_mut(
+    fn item_mut_dyn(
       &mut self,
       __typex_index: ::core::primitive::usize,
     ) -> ::core::option::Option<::typex::ObjectRefMut<'_>> {
-      #item_body
+      #item_lookup
     }
+  };
+
+  Access {
+    shape: quote! { ::typex::ReflectMut::Enum(self) },
+    impls,
+    overrides,
   }
 }
