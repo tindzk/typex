@@ -36,6 +36,22 @@ fn object_mut_from_clone_owns_a_copy() {
 }
 
 #[test]
+fn object_mut_lends_an_object_ref_mut() {
+  let mut object = ObjectMut::new(Pair {
+    count: 1,
+    label: Text("one"),
+  });
+
+  object
+    .as_object_ref_mut()
+    .set_field_path(TypedField::<Pair, u16>::new("count").path(), 2)
+    .unwrap();
+
+  assert_eq!(object.to_ref::<Pair>().unwrap().count, 2);
+  assert_eq!(object.as_object_ref().field_names(), &["count", "label"]);
+}
+
+#[test]
 fn object_mut_converts_to_object_without_losing_type_information() {
   let object = ObjectMut::new(Number(7)).into_object();
 

@@ -712,6 +712,12 @@ impl ObjectMut {
     ObjectRef::new(self.0.as_meta())
   }
 
+  /// Returns a borrowed [`ObjectRefMut`] view of the value.
+  #[inline]
+  pub fn as_object_ref_mut(&mut self) -> ObjectRefMut<'_> {
+    ObjectRefMut::new(self.0.as_mut())
+  }
+
   /// Returns a mutable field by name; see [`MetaMut::field_mut_dyn`].
   #[inline]
   pub fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
@@ -753,7 +759,7 @@ impl ObjectMut {
     &'r mut self,
     query: Q,
   ) -> Result<Q::Output, ReflectiveError> {
-    query.resolve(ObjectRefMut::new(self.0.as_mut()))
+    query.resolve(self.as_object_ref_mut())
   }
 
   /// Inserts `value` under `key`; see [`MapAccessMut::insert_key`].
