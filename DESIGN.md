@@ -95,12 +95,13 @@ key steps are `'static`. Typed key steps exist only for maps with `String` or
   `StructAccessMut`, `SequenceAccessMut`, `MapAccessMut` and
   `OptionAccessMut`, or `Opaque` when the value exposes no mutable structure.
 - `Meta` keeps only `type_info`, `reflect`, `field_dyn`, `item_dyn`,
-  `key_dyn`, `eq_dyn`, `into_any` and `as_any`. `MetaMut` keeps only `reflect_mut`, `field_mut_dyn`,
-  `item_mut_dyn`, `key_mut_dyn`, `set_dyn`, `replace_dyn`, `as_any_mut` and the
-  hidden `as_meta`.
+  `key_dyn`, `eq_dyn`, `into_any` and `as_any`. `MetaMut` keeps only
+  `reflect_mut`, `field_mut_dyn`, `item_mut_dyn`, `key_mut_dyn`, `set_dyn`,
+  `replace_dyn`, `as_any_mut` and the hidden `as_meta`.
 - `field_dyn`, `item_dyn`, `key_dyn`, `field_mut_dyn`, `item_mut_dyn` and
-  `key_mut_dyn` default to going through the shape. Other implementations keep the defaults, and
-  `Option` overrides them to reach the contained value directly.
+  `key_mut_dyn` default to going through the shape. The derives and the
+  pointer, sequence and map implementations keep the defaults. `Option`
+  overrides them to reach the contained value directly.
 - `SequenceAccessMut` extends `SequenceAccess`, so a mutable sequence shape
   also reports its length.
 - Callers use inherent methods with the familiar names, such as `len`, `key`
@@ -141,16 +142,29 @@ whole-value replacement needs a per-type implementation for every shape.
 Deriving the kind from the shape also means that a value cannot report a map
 without providing map access, or a sequence without a length.
 
-Reaching a field through the shape costs two dynamic calls, one for `reflect`
-and one for the access method, and the shape is too large to return in
-registers. Path resolution performs one lookup per segment, so the navigation
-methods stay on the traits as single dynamic calls. A default trait method is
-compiled for each implementing type with a concrete `Self`, so the default
-navigation methods inline `reflect` or `reflect_mut` and the access method and
-match direct lookups in instruction counts. A free function over `&dyn Meta`
-cannot inline them and costs about 14% more on a two-segment path. The `_dyn`
-suffix, shared with `eq_dyn` and `set_dyn`, keeps them from shadowing inherent
-methods.
+Reaching a field through the shape of a trait object costs two dynamic calls,
+one for `reflect` and one for the access method, and the shape is too large to
+return in registers. Path resolution performs one lookup per segment, so every
+navigation method used by paths stays on the traits as a single dynamic call.
+The `_dyn` suffix, shared with `eq_dyn` and `set_dyn`, keeps them from
+shadowing inherent methods.
+
+A default trait method is compiled for each implementing type with a concrete
+`Self`, so the default navigation methods inline `reflect` or `reflect_mut`
+and the access method. The instruction count benchmarks show:
+
+- A derived or built-in override that performs a direct lookup matches the
+  default exactly, so the derives and the `Box`, `Rc`, `Arc`, sequence and map
+  implementations do not override the navigation methods.
+- A free function or inherent method over `&dyn Meta` cannot inline the shape
+  and costs about 14% more on a two-segment field path. Moving `item` and
+  `key` lookups onto the trait as `item_dyn` and `key_dyn` saves about 6% on
+  a two-segment path.
+- The default for `Option` reaches the contained value through an erased
+  `ObjectRef` or `ObjectRefMut` and costs an additional dynamic call, about 6%
+  on a two-segment path, so `Option` overrides the navigation methods that
+  forward to the contained value.
+
 Patch and mutation batch operations that need a sequence length read it from
 the matched `SequenceAccessMut` instead of calling `reflect` again.
 
