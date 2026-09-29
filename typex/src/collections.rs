@@ -94,10 +94,6 @@ macro_rules! impl_meta_forward {
         (**self).reflect()
       }
 
-      fn field_dyn(&self, name: &str) -> Option<ObjectRef<'_>> {
-        (**self).field_dyn(name)
-      }
-
       fn eq_dyn(&self, other: &dyn Meta) -> bool {
         other
           .as_any()
@@ -651,6 +647,8 @@ where
     Reflect::Option(self.as_ref().map(|value| ObjectRef::new(value)))
   }
 
+  // The default reaches the contained value through an `ObjectRef`, which
+  // costs an additional dynamic call.
   fn field_dyn(&self, name: &str) -> Option<ObjectRef<'_>> {
     self.as_ref()?.field_dyn(name)
   }

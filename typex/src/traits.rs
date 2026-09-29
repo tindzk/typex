@@ -236,9 +236,14 @@ pub trait Meta: Any {
 
   /// Returns an exposed field by name, forwarding through options.
   ///
-  /// The default implementation goes through [`Meta::reflect`]. The derive
-  /// overrides it with a direct lookup.
+  /// The default implementation goes through [`Meta::reflect`] and costs one
+  /// dynamic call, so structural types do not need to override it.
   fn field_dyn(&self, name: &str) -> Option<ObjectRef<'_>> {
+    // Each implementing type compiles its own copy of this default with a
+    // concrete `Self`, so `reflect` and the access method are inlined and
+    // dispatched statically. Only the call to `field_dyn` itself goes through
+    // the vtable. A free function over `&dyn Meta` would not know the type and
+    // would add dynamic calls for `reflect` and the access method.
     match self.reflect() {
       Reflect::Struct(value) => value.field(name),
       Reflect::Option(value) => value?.field(name),

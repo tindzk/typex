@@ -110,18 +110,6 @@ fn expand_meta(input: &DeriveInput) -> syn::Result<TokenStream2> {
   // `partial_eq` takes precedence over the generated structural comparison.
   let (access, structural_eq_fn) = access.unzip();
   let eq_fn = partial_eq_fn.or(structural_eq_fn);
-  // Structural types look fields up directly instead of going through
-  // `reflect`, saving a dynamic call per path step.
-  let field_fn = access.is_some().then(|| {
-    quote! {
-      fn field_dyn(
-        &self,
-        __typex_name: &::core::primitive::str,
-      ) -> ::core::option::Option<::typex::ObjectRef<'_>> {
-        ::typex::StructAccess::field(self, __typex_name)
-      }
-    }
-  });
   let access_impl = access.map(|access| {
     quote! {
       impl #impl_generics ::typex::StructAccess for #name #ty_generics #where_clause {
@@ -135,8 +123,6 @@ fn expand_meta(input: &DeriveInput) -> syn::Result<TokenStream2> {
       fn reflect(&self) -> ::typex::Reflect<'_> {
         #shape
       }
-
-      #field_fn
 
       #eq_fn
 
