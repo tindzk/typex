@@ -273,10 +273,7 @@ assert_eq!(object.type_info(), TypeInfo::of::<u8>());
 assert_eq!(object.type_name(), core::any::type_name::<u8>());
 
 let mutable = ObjectMut::from_clone(&42_u8);
-assert_eq!(
-  mutable.as_ref().as_any().downcast_ref::<u8>(),
-  Some(&42)
-);
+assert_eq!(mutable.to_ref::<u8>(), Some(&42));
 ```
 
 ### Object conversions

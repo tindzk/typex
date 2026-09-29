@@ -70,7 +70,7 @@ impl MutationRollback {
       OwnedPatchOperation::Set { value, .. }
       | OwnedPatchOperation::InsertKey { value, .. }
       | OwnedPatchOperation::InsertItem { value, .. }
-      | OwnedPatchOperation::PushItem { value, .. } => Some(ObjectRef::new(value.as_ref())),
+      | OwnedPatchOperation::PushItem { value, .. } => Some(value.as_object_ref()),
       OwnedPatchOperation::RemoveKey { .. }
       | OwnedPatchOperation::RemoveItem { .. }
       | OwnedPatchOperation::MoveItem { .. } => None,

@@ -203,101 +203,102 @@ impl PartialEq for ObjectRef<'_> {
   }
 }
 
-/// Generates read accessors that forward to [`ObjectRef`] through a private
-/// `view` method, so that every wrapper shares the implementation above.
+/// Generates read accessors that forward to [`ObjectRef`] through each
+/// wrapper's `as_object_ref` method, so that every wrapper shares the
+/// implementation above.
 macro_rules! forward_object_reads {
   ($ty:ty) => {
     impl $ty {
       /// Returns runtime type metadata; see [`ObjectRef::type_info`].
       #[inline]
       pub fn type_info(&self) -> TypeInfo {
-        self.view().type_info()
+        self.as_object_ref().type_info()
       }
 
       /// Returns the Rust type name; see [`ObjectRef::type_name`].
       #[inline]
       pub fn type_name(&self) -> &'static str {
-        self.view().type_name()
+        self.as_object_ref().type_name()
       }
 
       /// Returns the type ID; see [`ObjectRef::id`].
       #[inline]
       pub fn id(&self) -> core::any::TypeId {
-        self.view().id()
+        self.as_object_ref().id()
       }
 
       /// Returns the structural kind; see [`ObjectRef::kind`].
       #[inline]
       pub fn kind(&self) -> ValueKind {
-        self.view().kind()
+        self.as_object_ref().kind()
       }
 
       /// Returns the named or indexed access; see [`ObjectRef::access_kind`].
       #[inline]
       pub fn access_kind(&self) -> Option<AccessKind> {
-        self.view().access_kind()
+        self.as_object_ref().access_kind()
       }
 
       /// Returns the contained value of an option; see
       /// [`ObjectRef::option_value`].
       #[inline]
       pub fn option_value(&self) -> Option<ObjectRef<'_>> {
-        self.view().option_value()
+        self.as_object_ref().option_value()
       }
 
       /// Returns an exposed field by name; see [`ObjectRef::field`].
       #[inline]
       pub fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
-        self.view().field(name)
+        self.as_object_ref().field(name)
       }
 
       /// Returns the exposed field names; see [`ObjectRef::field_names`].
       #[inline]
       pub fn field_names(&self) -> &'static [&'static str] {
-        self.view().field_names()
+        self.as_object_ref().field_names()
       }
 
       /// Returns an item at `index`; see [`ObjectRef::item`].
       #[inline]
       pub fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-        self.view().item(index)
+        self.as_object_ref().item(index)
       }
 
       /// Returns the number of exposed items; see [`ObjectRef::len`].
       #[inline]
       pub fn len(&self) -> Option<usize> {
-        self.view().len()
+        self.as_object_ref().len()
       }
 
       /// Checks whether there are no exposed items; see [`ObjectRef::is_empty`].
       #[inline]
       pub fn is_empty(&self) -> Option<bool> {
-        self.view().is_empty()
+        self.as_object_ref().is_empty()
       }
 
       /// Returns a value for `key`; see [`ObjectRef::key`].
       #[inline]
       pub fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
-        self.view().key(key)
+        self.as_object_ref().key(key)
       }
 
       /// Returns the keys as strings; see [`ObjectRef::keys`].
       #[inline]
       pub fn keys(&self) -> Option<Vec<String>> {
-        self.view().keys()
+        self.as_object_ref().keys()
       }
 
       /// Passes each map entry to `visitor`; see
       /// [`ObjectRef::visit_map_entries`].
       #[inline]
       pub fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
-        self.view().visit_map_entries(visitor)
+        self.as_object_ref().visit_map_entries(visitor)
       }
 
       /// Traverses a nested field, item or key path; see
       /// [`ObjectRef::field_path`].
       pub fn field_path<'s, Q: FieldPathQuery<'s>>(&'s self, query: Q) -> Option<Q::Output> {
-        self.view().field_path(query)
+        self.as_object_ref().field_path(query)
       }
     }
   };
@@ -340,20 +341,10 @@ impl Object {
     self.0
   }
 
-  fn view(&self) -> ObjectRef<'_> {
+  /// Returns a borrowed [`ObjectRef`] view of the value.
+  #[inline]
+  pub fn as_object_ref(&self) -> ObjectRef<'_> {
     ObjectRef::new(self.0.as_ref())
-  }
-}
-
-impl From<Box<dyn Meta>> for Object {
-  fn from(value: Box<dyn Meta>) -> Self {
-    Self(value)
-  }
-}
-
-impl AsRef<dyn Meta> for Object {
-  fn as_ref(&self) -> &(dyn Meta + 'static) {
-    self.0.as_ref()
   }
 }
 
@@ -411,7 +402,9 @@ impl<'a> ObjectRefMut<'a> {
     Self { inner }
   }
 
-  fn view(&self) -> ObjectRef<'_> {
+  /// Returns a borrowed [`ObjectRef`] view of the value.
+  #[inline]
+  pub fn as_object_ref(&self) -> ObjectRef<'_> {
     ObjectRef::new(self.inner.as_meta())
   }
 
@@ -713,7 +706,9 @@ impl ObjectMut {
     Object::new(MetaMutObject(self.0))
   }
 
-  fn view(&self) -> ObjectRef<'_> {
+  /// Returns a borrowed [`ObjectRef`] view of the value.
+  #[inline]
+  pub fn as_object_ref(&self) -> ObjectRef<'_> {
     ObjectRef::new(self.0.as_meta())
   }
 
@@ -816,27 +811,9 @@ impl ObjectMut {
   }
 }
 
-impl From<Box<dyn MetaMut>> for ObjectMut {
-  fn from(value: Box<dyn MetaMut>) -> Self {
-    Self(value)
-  }
-}
-
 impl From<ObjectMut> for Object {
   fn from(value: ObjectMut) -> Self {
     value.into_object()
-  }
-}
-
-impl AsRef<dyn MetaMut> for ObjectMut {
-  fn as_ref(&self) -> &(dyn MetaMut + 'static) {
-    self.0.as_ref()
-  }
-}
-
-impl AsMut<dyn MetaMut> for ObjectMut {
-  fn as_mut(&mut self) -> &mut (dyn MetaMut + 'static) {
-    self.0.as_mut()
   }
 }
 
@@ -936,20 +913,10 @@ impl SendObject {
     SendMeta::into_object(self.0)
   }
 
-  fn view(&self) -> ObjectRef<'_> {
+  /// Returns a borrowed [`ObjectRef`] view of the value.
+  #[inline]
+  pub fn as_object_ref(&self) -> ObjectRef<'_> {
     ObjectRef::new(self.0.as_meta())
-  }
-}
-
-impl From<Box<dyn SendMeta>> for SendObject {
-  fn from(value: Box<dyn SendMeta>) -> Self {
-    Self(value)
-  }
-}
-
-impl AsRef<dyn SendMeta> for SendObject {
-  fn as_ref(&self) -> &(dyn SendMeta + 'static) {
-    self.0.as_ref()
   }
 }
 
@@ -961,10 +928,10 @@ impl fmt::Debug for SendObject {
 
 /// Conversion and downcasting helpers for owned reflective objects.
 ///
-/// Implemented for [`Object`] and [`SendObject`]. Owned conversion consumes the
-/// wrapper and returns the reflected value as an [`Object`] when the requested
-/// concrete type does not match, while borrowed conversion leaves the wrapper
-/// in place.
+/// Implemented for [`Object`], [`ObjectMut`] and [`SendObject`]. Owned
+/// conversion consumes the wrapper and returns the reflected value as an
+/// [`Object`] when the requested concrete type does not match, while borrowed
+/// conversion leaves the wrapper in place.
 pub trait ObjectOps {
   /// Checks whether the object stores a `T`.
   fn is<T: 'static>(&self) -> bool;
@@ -1029,9 +996,30 @@ impl ObjectOps for Object {
   }
 }
 
+impl ObjectOps for ObjectMut {
+  #[inline]
+  fn is<T: 'static>(&self) -> bool {
+    self.0.as_any().is::<T>()
+  }
+
+  fn to<T: 'static>(self) -> Result<T, Object> {
+    if self.is::<T>() {
+      // The preceding type check guarantees that this downcast succeeds.
+      Ok(*Meta::into_any(self.0).downcast::<T>().unwrap())
+    } else {
+      Err(self.into_object())
+    }
+  }
+
+  #[inline]
+  fn to_ref<T: 'static>(&self) -> Option<&T> {
+    self.0.as_any().downcast_ref::<T>()
+  }
+}
+
 impl ObjectOps for SendObject {
   fn is<T: 'static>(&self) -> bool {
-    self.0.as_ref().as_any().is::<T>()
+    self.0.as_any().is::<T>()
   }
 
   fn to<T: 'static>(self) -> Result<T, Object> {
@@ -1044,6 +1032,6 @@ impl ObjectOps for SendObject {
   }
 
   fn to_ref<T: 'static>(&self) -> Option<&T> {
-    self.as_ref().as_any().downcast_ref::<T>()
+    self.0.as_any().downcast_ref::<T>()
   }
 }

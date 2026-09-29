@@ -115,9 +115,10 @@ key steps are `'static`. Typed key steps exist only for maps with `String` or
 - `ObjectRef` holds the read methods. The other wrappers forward to it through
   a macro. `ObjectRefMut` and `ObjectMut` call the insertion and removal
   methods of `MetaMut`, which default to going through the shape.
-- The owned wrappers do not implement `Deref`. `AsRef` returns the inner trait
-  object when a caller needs it. Wrappers compare with `==` rather than
-  `eq_dyn`.
+- The owned wrappers implement neither `Deref` nor `AsRef`. `as_object_ref`
+  lends an `ObjectRef`, whose `as_meta` returns the trait object, and
+  `into_inner` gives up the boxed trait object. `ObjectOps` downcasts all
+  three owned wrappers. Wrappers compare with `==` rather than `eq_dyn`.
 
 ### Rationale
 

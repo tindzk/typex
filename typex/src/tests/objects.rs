@@ -32,10 +32,7 @@ fn object_mut_from_clone_owns_a_copy() {
   let source = Number(7);
   let object = ObjectMut::from_clone(&source);
 
-  assert_eq!(
-    object.as_ref().as_any().downcast_ref::<Number>(),
-    Some(&Number(7))
-  );
+  assert_eq!(object.to_ref::<Number>(), Some(&Number(7)));
 }
 
 #[test]
