@@ -170,32 +170,6 @@ fn expand_meta_mut(input: &DeriveInput) -> syn::Result<TokenStream2> {
 
   let name = &input.ident;
   let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-  // Structural types look fields and items up directly instead of going
-  // through `reflect_mut`, saving a dynamic call per path step.
-  let access_fns = access.is_some().then(|| {
-    quote! {
-      fn field_mut_dyn(
-        &mut self,
-        __typex_name: &::core::primitive::str,
-      ) -> ::core::option::Option<::typex::ObjectRefMut<'_>> {
-        ::typex::StructAccessMut::field_mut(self, __typex_name)
-      }
-
-      fn item_mut_dyn(
-        &mut self,
-        __typex_index: ::core::primitive::usize,
-      ) -> ::core::option::Option<::typex::ObjectRefMut<'_>> {
-        ::typex::StructAccessMut::item_mut(self, __typex_index)
-      }
-
-      fn key_mut_dyn(
-        &mut self,
-        _: &::core::primitive::str,
-      ) -> ::core::option::Option<::typex::ObjectRefMut<'_>> {
-        ::core::option::Option::None
-      }
-    }
-  });
   let access_impl = access.map(|access| {
     quote! {
       impl #impl_generics ::typex::StructAccessMut for #name #ty_generics #where_clause {
@@ -209,8 +183,6 @@ fn expand_meta_mut(input: &DeriveInput) -> syn::Result<TokenStream2> {
       fn reflect_mut(&mut self) -> ::typex::ReflectMut<'_> {
         #shape
       }
-
-      #access_fns
 
       fn replace_dyn(
         &mut self,

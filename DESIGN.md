@@ -98,11 +98,9 @@ key steps are `'static`. Typed key steps exist only for maps with `String` or
   and `as_any`. `MetaMut` keeps only `reflect_mut`, `field_mut_dyn`,
   `item_mut_dyn`, `key_mut_dyn`, `set_dyn`, `replace_dyn`, `as_any_mut` and the
   hidden `as_meta`.
-- `field_dyn` defaults to going through the shape. Structural types keep the
-  default, and `Option` overrides it to reach the contained value directly.
-- `field_mut_dyn`, `item_mut_dyn` and `key_mut_dyn` default to going through
-  the shape. The derives and built-in implementations override them with
-  direct lookups.
+- `field_dyn`, `field_mut_dyn`, `item_mut_dyn` and `key_mut_dyn` default to
+  going through the shape. Other implementations keep the defaults, and
+  `Option` overrides them to reach the contained value directly.
 - `SequenceAccessMut` extends `SequenceAccess`, so a mutable sequence shape
   also reports its length.
 - Callers use inherent methods with the familiar names, such as `len`, `key`
@@ -148,10 +146,11 @@ and one for the access method, and the shape is too large to return in
 registers. Path resolution performs one lookup per segment, so the navigation
 methods stay on the traits as single dynamic calls. A default trait method is
 compiled for each implementing type with a concrete `Self`, so the default
-`field_dyn` inlines `reflect` and the struct access and matches a direct lookup
-in instruction counts. A free function over `&dyn Meta` cannot inline them and
-costs about 14% more on a two-segment path. The `_dyn` suffix, shared
-with `eq_dyn` and `set_dyn`, keeps them from shadowing inherent methods.
+navigation methods inline `reflect` or `reflect_mut` and the access method and
+match direct lookups in instruction counts. A free function over `&dyn Meta`
+cannot inline them and costs about 14% more on a two-segment path. The `_dyn`
+suffix, shared with `eq_dyn` and `set_dyn`, keeps them from shadowing inherent
+methods.
 Patch and mutation batch operations that need a sequence length read it from
 the matched `SequenceAccessMut` instead of calling `reflect` again.
 

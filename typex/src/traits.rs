@@ -350,8 +350,8 @@ pub trait MetaMut: Meta {
 
   /// Returns a mutable field by name, forwarding through options.
   ///
-  /// The default implementation goes through [`MetaMut::reflect_mut`]. The
-  /// derive overrides it with a direct lookup.
+  /// The default implementation goes through [`MetaMut::reflect_mut`] and
+  /// costs one dynamic call; see [`Meta::field_dyn`].
   fn field_mut_dyn(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
     match self.reflect_mut() {
       ReflectMut::Struct(value) => value.field_mut(name),
@@ -363,7 +363,8 @@ pub trait MetaMut: Meta {
   /// Returns a mutable item at `index`. An option exposes its contained value
   /// at index 0.
   ///
-  /// The default implementation goes through [`MetaMut::reflect_mut`].
+  /// The default implementation goes through [`MetaMut::reflect_mut`] and
+  /// costs one dynamic call; see [`Meta::field_dyn`].
   fn item_mut_dyn(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
     match self.reflect_mut() {
       ReflectMut::Struct(value) => value.item_mut(index),
@@ -375,7 +376,8 @@ pub trait MetaMut: Meta {
 
   /// Returns a mutable value for `key`, forwarding through options.
   ///
-  /// The default implementation goes through [`MetaMut::reflect_mut`].
+  /// The default implementation goes through [`MetaMut::reflect_mut`] and
+  /// costs one dynamic call; see [`Meta::field_dyn`].
   fn key_mut_dyn(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
     match self.reflect_mut() {
       ReflectMut::Map(value) => value.key_mut(key),
