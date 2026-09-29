@@ -76,18 +76,10 @@ impl dyn Meta + '_ {
     }
   }
 
-  /// Returns an item at `index`.
-  ///
-  /// An option exposes its contained value at index 0.
+  /// Returns an item at `index`; see [`Meta::item_dyn`].
   #[inline]
   pub fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-    match self.reflect() {
-      Reflect::Struct(value) => value.item(index),
-      Reflect::Sequence(value) => value.item(index),
-      Reflect::Map(value) => value.item(index),
-      Reflect::Option(value) => value.filter(|_| index == 0),
-      Reflect::Scalar => None,
-    }
+    self.item_dyn(index)
   }
 
   /// Returns the number of exposed structural items, when available.
@@ -109,16 +101,10 @@ impl dyn Meta + '_ {
     self.len().map(|len| len == 0)
   }
 
-  /// Returns a value for a string-like `key`.
-  ///
-  /// Options forward the lookup to their contained value.
+  /// Returns a value for a string-like `key`; see [`Meta::key_dyn`].
   #[inline]
   pub fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
-    match self.reflect() {
-      Reflect::Map(value) => value.key(key),
-      Reflect::Option(value) => value?.key(key),
-      _ => None,
-    }
+    self.key_dyn(key)
   }
 
   /// Returns the keys as strings for map-like access.

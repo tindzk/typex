@@ -94,12 +94,12 @@ key steps are `'static`. Typed key steps exist only for maps with `String` or
 - `MetaMut::reflect_mut` returns a `ReflectMut` shape over
   `StructAccessMut`, `SequenceAccessMut`, `MapAccessMut` and
   `OptionAccessMut`, or `Opaque` when the value exposes no mutable structure.
-- `Meta` keeps only `type_info`, `reflect`, `field_dyn`, `eq_dyn`, `into_any`
-  and `as_any`. `MetaMut` keeps only `reflect_mut`, `field_mut_dyn`,
+- `Meta` keeps only `type_info`, `reflect`, `field_dyn`, `item_dyn`,
+  `key_dyn`, `eq_dyn`, `into_any` and `as_any`. `MetaMut` keeps only `reflect_mut`, `field_mut_dyn`,
   `item_mut_dyn`, `key_mut_dyn`, `set_dyn`, `replace_dyn`, `as_any_mut` and the
   hidden `as_meta`.
-- `field_dyn`, `field_mut_dyn`, `item_mut_dyn` and `key_mut_dyn` default to
-  going through the shape. Other implementations keep the defaults, and
+- `field_dyn`, `item_dyn`, `key_dyn`, `field_mut_dyn`, `item_mut_dyn` and
+  `key_mut_dyn` default to going through the shape. Other implementations keep the defaults, and
   `Option` overrides them to reach the contained value directly.
 - `SequenceAccessMut` extends `SequenceAccess`, so a mutable sequence shape
   also reports its length.

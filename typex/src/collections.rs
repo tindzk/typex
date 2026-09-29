@@ -619,10 +619,14 @@ where
     Reflect::Option(self.as_ref().map(|value| ObjectRef::new(value)))
   }
 
-  // The default reaches the contained value through an `ObjectRef`, which
+  // The defaults reach the contained value through an `ObjectRef`, which
   // costs an additional dynamic call.
   fn field_dyn(&self, name: &str) -> Option<ObjectRef<'_>> {
     self.as_ref()?.field_dyn(name)
+  }
+
+  fn key_dyn(&self, key: &str) -> Option<ObjectRef<'_>> {
+    self.as_ref()?.key_dyn(key)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {

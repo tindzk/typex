@@ -78,6 +78,22 @@ fn nested_field_path(value: PatchState) -> u16 {
   black_box(result).unwrap().to_ref::<u16>().copied().unwrap()
 }
 
+#[library_benchmark]
+#[bench::default(setup = state)]
+fn nested_item_path(value: PatchState) -> u8 {
+  let result =
+    ObjectRef::new(&value).field_path(&[PathSegment::Field("items"), PathSegment::Item(1)]);
+  black_box(result).unwrap().to_ref::<u8>().copied().unwrap()
+}
+
+#[library_benchmark]
+#[bench::default(setup = state)]
+fn nested_key_path(value: PatchState) -> u8 {
+  let result =
+    ObjectRef::new(&value).field_path(&[PathSegment::Field("labels"), PathSegment::Key("primary")]);
+  black_box(result).unwrap().to_ref::<u8>().copied().unwrap()
+}
+
 fn path_segments() -> [PathSegment<'static>; 6] {
   [
     PathSegment::Field("profile"),
@@ -246,7 +262,8 @@ library_benchmark_group!(
   name = typex_group;
   // Add a versioned benchmark when its workload needs an incompatible API.
   // IAI records a new benchmark without a baseline until the next pull request.
-  benchmarks = apply_patch, mutation_batch_commit, nested_field_path, owned_path_from_slice,
+  benchmarks = apply_patch, mutation_batch_commit, nested_field_path, nested_item_path,
+    nested_key_path, owned_path_from_slice,
     owned_path_iter, generic_map_equality, derived_struct_equality, set_in_place, set_via_replace, move_vec_native, move_vec_deque_native,
     move_linked_list_native
 );

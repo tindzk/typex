@@ -251,6 +251,35 @@ pub trait Meta: Any {
     }
   }
 
+  /// Returns an exposed item at `index`. An option exposes its contained
+  /// value at index 0.
+  ///
+  /// The default implementation goes through [`Meta::reflect`] and costs one
+  /// dynamic call; see [`Meta::field_dyn`].
+  fn item_dyn(&self, index: usize) -> Option<ObjectRef<'_>> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect() {
+      Reflect::Struct(value) => value.item(index),
+      Reflect::Sequence(value) => value.item(index),
+      Reflect::Map(value) => value.item(index),
+      Reflect::Option(value) => value.filter(|_| index == 0),
+      Reflect::Scalar => None,
+    }
+  }
+
+  /// Returns a value for a string-like `key`, forwarding through options.
+  ///
+  /// The default implementation goes through [`Meta::reflect`] and costs one
+  /// dynamic call; see [`Meta::field_dyn`].
+  fn key_dyn(&self, key: &str) -> Option<ObjectRef<'_>> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect() {
+      Reflect::Map(value) => value.key(key),
+      Reflect::Option(value) => value?.key(key),
+      _ => None,
+    }
+  }
+
   /// Compares two [`Meta`] values structurally.
   ///
   /// Values with different [`Meta::type_info`] are never equal. Otherwise the
