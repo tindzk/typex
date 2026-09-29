@@ -21,13 +21,6 @@ fn fmt_meta(f: &mut fmt::Formatter<'_>, name: &str, meta: &dyn Meta) -> fmt::Res
     .finish()
 }
 
-/// Structural equality via [`Meta::eq_dyn`].
-impl PartialEq for dyn Meta + '_ {
-  fn eq(&self, other: &Self) -> bool {
-    self.eq_dyn(other)
-  }
-}
-
 /// Borrowed reflective view of a [`Meta`] value.
 ///
 /// # Example

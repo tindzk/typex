@@ -10,10 +10,10 @@ fn leaf_eq_dyn_compares_by_value_and_type() {
   let c = Object::new(Number(8));
   let d = Object::new(Text("7"));
 
-  assert!(*a == *b);
-  assert!(*a != *c);
+  assert!(a == b);
+  assert!(a != c);
   // Different concrete types are never equal, even with "matching" data.
-  assert!(*a != *d);
+  assert!(a != d);
 }
 
 #[test]
