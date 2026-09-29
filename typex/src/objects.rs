@@ -338,21 +338,9 @@ impl Deref for Object {
   }
 }
 
-impl DerefMut for Object {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    self.0.as_mut()
-  }
-}
-
 impl AsRef<dyn Meta> for Object {
   fn as_ref(&self) -> &(dyn Meta + 'static) {
     self.0.as_ref()
-  }
-}
-
-impl AsMut<dyn Meta> for Object {
-  fn as_mut(&mut self) -> &mut (dyn Meta + 'static) {
-    self.0.as_mut()
   }
 }
 
