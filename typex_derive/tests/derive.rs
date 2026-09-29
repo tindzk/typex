@@ -3,8 +3,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use typex::{
-  AccessKind, FieldPath, FieldPathMut, Meta, MetaMut, Object, ObjectOps, ObjectRef, ObjectRefMut,
-  PatchOperation, PathSegment, TypeInfo, TypedField, TypedMapAccess, TypedMapAccessMut,
+  AccessKind, Meta, MetaMut, Object, ObjectOps, ObjectRef, ObjectRefMut, PatchOperation,
+  PathSegment, TypeInfo, TypedField, TypedMapAccess, TypedMapAccessMut,
 };
 
 #[derive(Debug, PartialEq, Meta)]
@@ -494,7 +494,7 @@ fn derive_meta_exposes_struct_fields() {
     Some(&"indexed")
   );
   assert!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[
         PathSegment::Field("labels_by_id"),
         PathSegment::Key("7"),
@@ -514,7 +514,7 @@ fn derive_meta_exposes_struct_fields() {
     Some(&5)
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[
         PathSegment::Field("labels"),
         PathSegment::Item(0),
@@ -525,7 +525,7 @@ fn derive_meta_exposes_struct_fields() {
     Some(&"primary")
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[
         PathSegment::Field("labels_by_name"),
         PathSegment::Key("primary"),
@@ -536,7 +536,7 @@ fn derive_meta_exposes_struct_fields() {
     Some(&"mapped")
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[
         PathSegment::Field("optional_label"),
         PathSegment::Field("name"),
@@ -546,14 +546,14 @@ fn derive_meta_exposes_struct_fields() {
     Some(&"optional")
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[PathSegment::Field("pair"), PathSegment::Item(1)])
       .unwrap()
       .to_ref::<bool>(),
     Some(&false)
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[
         PathSegment::Field("status"),
         PathSegment::Field("Struct"),
@@ -598,7 +598,7 @@ fn derive_meta_generates_typed_paths() {
   );
 
   assert_eq!(
-    payload.field_path(TypedPayload::FIELD_LABELS.item(0).then(Label::FIELD_NAME)),
+    ObjectRef::new(&payload).field_path(TypedPayload::FIELD_LABELS.item(0).then(Label::FIELD_NAME)),
     Some(&"nested")
   );
 
@@ -645,7 +645,7 @@ fn derive_meta_generates_typed_paths_for_supported_maps() {
     ]
   );
   assert_eq!(
-    payload.field_path(
+    ObjectRef::new(&payload).field_path(
       TypedMapPayload::FIELD_OWNED
         .key("primary")
         .then(Label::FIELD_NAME)
@@ -653,15 +653,17 @@ fn derive_meta_generates_typed_paths_for_supported_maps() {
     Some(&"first")
   );
   assert_eq!(
-    payload.field_path(TypedMapPayload::FIELD_BORROWED.key("count")),
+    ObjectRef::new(&payload).field_path(TypedMapPayload::FIELD_BORROWED.key("count")),
     Some(&1)
   );
   assert_eq!(
-    payload.field_path(TypedMapPayload::FIELD_BORROWED.key("missing")),
+    ObjectRef::new(&payload).field_path(TypedMapPayload::FIELD_BORROWED.key("missing")),
     None
   );
 
-  *payload.field_path_mut(name).unwrap() = "updated";
+  *ObjectRefMut::new(&mut payload)
+    .field_path_mut(name)
+    .unwrap() = "updated";
   let mut root = ObjectRefMut::new(&mut payload);
   root
     .set_field_path(TypedMapPayload::FIELD_BORROWED.key("count"), 2)
@@ -679,7 +681,7 @@ fn derive_meta_generates_typed_paths_for_supported_sequences() {
   };
 
   assert_eq!(
-    payload.field_path(
+    ObjectRef::new(&payload).field_path(
       TypedSequencePayload::FIELD_DEQUE
         .item(1)
         .then(Label::FIELD_NAME)
@@ -687,7 +689,7 @@ fn derive_meta_generates_typed_paths_for_supported_sequences() {
     Some(&"deque-1")
   );
   assert_eq!(
-    payload.field_path(
+    ObjectRef::new(&payload).field_path(
       TypedSequencePayload::FIELD_LIST
         .item(0)
         .then(Label::FIELD_NAME)
@@ -695,14 +697,14 @@ fn derive_meta_generates_typed_paths_for_supported_sequences() {
     Some(&"list-0")
   );
 
-  *payload
+  *ObjectRefMut::new(&mut payload)
     .field_path_mut(
       TypedSequencePayload::FIELD_DEQUE
         .item(0)
         .then(Label::FIELD_NAME),
     )
     .unwrap() = "deque-updated";
-  *payload
+  *ObjectRefMut::new(&mut payload)
     .field_path_mut(
       TypedSequencePayload::FIELD_LIST
         .item(0)
@@ -958,17 +960,15 @@ fn derive_meta_mut_exposes_and_mutates_struct_fields() {
   assert_eq!(payload.labels_by_id.get(&7).unwrap().name, "indexed2");
 
   // field_path_mut walks several hops in one call
-  *FieldPathMut::field_path_mut(
-    &mut payload,
-    &[
+  *ObjectRefMut::new(&mut payload)
+    .field_path_mut(&[
       PathSegment::Field("labels"),
       PathSegment::Item(0),
       PathSegment::Field("name"),
-    ],
-  )
-  .unwrap()
-  .to_mut::<&'static str>()
-  .unwrap() = "primary3";
+    ])
+    .unwrap()
+    .to_mut::<&'static str>()
+    .unwrap() = "primary3";
   assert_eq!(payload.labels[0].name, "primary3");
 }
 
@@ -1166,7 +1166,10 @@ fn raw_identifiers_use_unprefixed_names() {
   let mut keyword = Keyword { r#type: 1 };
 
   assert_eq!(ObjectRef::new(&keyword).field_names(), &["type"]);
-  assert_eq!(keyword.field_path(Keyword::FIELD_TYPE.path()), Some(&1));
+  assert_eq!(
+    ObjectRef::new(&keyword).field_path(Keyword::FIELD_TYPE.path()),
+    Some(&1)
+  );
   *ObjectRefMut::new(&mut keyword)
     .field_mut("type")
     .unwrap()
@@ -1176,7 +1179,10 @@ fn raw_identifiers_use_unprefixed_names() {
 
   let value = RawVariant::r#Loop { r#in: 3 };
   assert_eq!(ObjectRef::new(&value).field_names(), &["Loop", "in"]);
-  assert_eq!(value.field_path(RawVariant::FIELD_LOOP_IN.path()), Some(&3));
+  assert_eq!(
+    ObjectRef::new(&value).field_path(RawVariant::FIELD_LOOP_IN.path()),
+    Some(&3)
+  );
 }
 
 #[derive(Debug, Meta, MetaMut)]
@@ -1218,7 +1224,7 @@ fn recursive_types_derive() {
     }],
   };
   assert_eq!(
-    node.field_path(&[
+    ObjectRef::new(&node).field_path(&[
       PathSegment::Field("children"),
       PathSegment::Item(0),
       PathSegment::Field("value"),
@@ -1235,7 +1241,7 @@ fn recursive_types_derive() {
   };
   assert!(tree.eq_dyn(&tree));
   assert_eq!(
-    tree.field_path(Tree::<&str>::FIELD_CHILDREN.item(0).then(Tree::FIELD_VALUE)),
+    ObjectRef::new(&tree).field_path(Tree::<&str>::FIELD_CHILDREN.item(0).then(Tree::FIELD_VALUE)),
     Some(&"leaf")
   );
 
@@ -1272,7 +1278,7 @@ fn generic_field_types_get_their_own_bounds() {
   };
 
   assert_eq!(
-    value.field_path(&[PathSegment::Field("entries"), PathSegment::Key("a")]),
+    ObjectRef::new(&value).field_path(&[PathSegment::Field("entries"), PathSegment::Key("a")]),
     Some(ObjectRef::new(&1_u8))
   );
 }
@@ -1298,7 +1304,7 @@ fn generic_bounds_distinguish_same_named_types() {
   };
 
   assert_eq!(
-    value.field_path(&[PathSegment::Field("child"), PathSegment::Field("value")]),
+    ObjectRef::new(&value).field_path(&[PathSegment::Field("child"), PathSegment::Field("value")]),
     Some(ObjectRef::new(&1_u8))
   );
   *ObjectRefMut::new(&mut value)

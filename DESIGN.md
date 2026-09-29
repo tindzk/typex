@@ -110,6 +110,9 @@ key steps are `'static`. Typed key steps exist only for maps with `String` or
   unsuffixed `field`, `field_mut`, `item_mut`, `key_mut`, `set` and `replace`
   exist only on `Object`, `ObjectMut`, `SendObject`, `ObjectRef` and
   `ObjectRefMut`.
+- `field_path` and `field_path_mut` exist only as inherent methods on trait
+  objects and the `Object*` wrappers. A concrete value is wrapped first, as in
+  `ObjectRef::new(&value).field_path(path)`.
 
 ### Rationale
 
@@ -123,6 +126,13 @@ trait methods named `len`, `is_empty`, `keys` or `replace` would make
 names instead, and callers never need to import them. Inherent methods on trait
 objects and wrappers apply only to those receiver types, so they cannot shadow
 methods of concrete types.
+
+Path traversal follows the same rule. A blanket extension trait would put
+`field_path` on every `Meta` type, including pointer types that dereference to
+types with their own methods, and a `Self: Sized` default on `Meta` would be
+ambiguous with the inherent method on `dyn Meta`. Wrapping a value in
+`ObjectRef` or `ObjectRefMut` before navigating keeps one entry point for
+single and multiple hops.
 
 The remaining trait methods keep a `self` receiver so that `Meta` and `MetaMut`
 stay dyn-compatible. `set_dyn` and `replace_dyn` stay on `MetaMut` because
@@ -196,14 +206,6 @@ value its map-key context. A trait-object alias keeps `Meta` object-safe while
 allowing callers to pass closures directly.
 
 ## Trait implementation constraints
-
-### `FieldPath` and `Meta`
-
-`FieldPath` remains separate from `Meta` because its default method needs
-`Self: Sized` to build an `ObjectRef`. A `Self: Sized` default on `Meta` would
-collide with the inherent method of the same name on `impl dyn Meta + '_` for
-trait-object receivers. rustc reports the call as ambiguous even though the
-trait default is unreachable there. An unrelated trait avoids that ambiguity.
 
 ### `MetaMut` implementations
 

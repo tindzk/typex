@@ -8,7 +8,7 @@
 //! - Structural shapes: [`Reflect`] and [`ReflectMut`], with access traits such
 //!   as [`SequenceAccess`] for hand-written implementations
 //! - Owned objects: [`Object`], [`ObjectMut`] and [`SendObject`]
-//! - Object traits: [`ObjectOps`], [`FieldPath`] and [`FieldPathMut`]
+//! - Object trait: [`ObjectOps`]
 //! - Borrowed views: [`ObjectRef`] and [`ObjectRefMut`]
 //! - Paths: [`PathSegment`], [`OwnedPath`] and [`TypedPath`]
 //! - Mutations: [`PatchOperation`], [`MutationBatch`] and [`MutationRollback`]

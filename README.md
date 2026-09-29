@@ -352,8 +352,8 @@ assert!(a.eq_dyn(&b));
 
 ### Paths
 
-`FieldPath` traverses several hops in one call using either raw
-`&[PathSegment]` values or typed paths. Typed item steps support `Vec`, arrays,
+`ObjectRef::field_path` and `ObjectRefMut::field_path_mut` traverse several
+hops in one call using either raw `&[PathSegment]` values or typed paths. Typed item steps support `Vec`, arrays,
 `VecDeque` and `LinkedList`. Typed key steps support `BTreeMap` and `HashMap`
 with `String` or `&'static str` keys. `BTreeSet` and `BinaryHeap` support
 read-only indexed reflection through raw paths, but do not support typed item
@@ -386,8 +386,9 @@ let mut payload = Payload {
   limits: BTreeMap::from([(String::from("requests"), 100)]),
 };
 
+let root = ObjectRef::new(&payload);
 assert_eq!(
-  payload
+  root
     .field_path(&[
       PathSegment::Field("labels"),
       PathSegment::Item(0),
@@ -399,12 +400,12 @@ assert_eq!(
 );
 
 assert_eq!(
-  payload.field_path(Payload::FIELD_LABELS.item(0).then(Label::FIELD_NAME)),
+  root.field_path(Payload::FIELD_LABELS.item(0).then(Label::FIELD_NAME)),
   Some(&"primary")
 );
 
 assert_eq!(
-  payload.field_path(Payload::FIELD_LIMITS.key("requests")),
+  root.field_path(Payload::FIELD_LIMITS.key("requests")),
   Some(&100)
 );
 ```
@@ -552,7 +553,8 @@ let tree = Tree {
 };
 
 assert_eq!(
-  tree.field_path(Tree::<&str>::FIELD_CHILDREN.item(0).then(Tree::FIELD_VALUE)),
+  ObjectRef::new(&tree)
+    .field_path(Tree::<&str>::FIELD_CHILDREN.item(0).then(Tree::FIELD_VALUE)),
   Some(&"leaf")
 );
 ```

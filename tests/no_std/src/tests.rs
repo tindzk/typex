@@ -4,9 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
-use typex::{
-  FieldPath, Object, ObjectOps, ObjectRef, ObjectRefMut, PathSegment, SendObject, TypedMapAccess,
-};
+use typex::{Object, ObjectOps, ObjectRef, ObjectRefMut, PathSegment, SendObject, TypedMapAccess};
 use typex_derive::{Meta, MetaMut};
 
 #[derive(Debug, PartialEq, Meta)]
@@ -181,7 +179,7 @@ fn meta_smoke_test() {
     Some(&6)
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[
         PathSegment::Field("labels"),
         PathSegment::Item(0),
@@ -192,7 +190,7 @@ fn meta_smoke_test() {
     Some(&"primary")
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[
         PathSegment::Field("labels_by_name"),
         PathSegment::Key("primary"),
@@ -203,7 +201,7 @@ fn meta_smoke_test() {
     Some(&"mapped")
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[
         PathSegment::Field("optional_label"),
         PathSegment::Field("name"),
@@ -213,14 +211,14 @@ fn meta_smoke_test() {
     Some(&"optional")
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[PathSegment::Field("pair"), PathSegment::Item(1)])
       .unwrap()
       .to_ref::<bool>(),
     Some(&false)
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[
         PathSegment::Field("status"),
         PathSegment::Field("Struct"),

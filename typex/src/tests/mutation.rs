@@ -144,9 +144,9 @@ fn typed_field_paths_read_and_mutate_terminal_values() {
   };
   let count_path = TypedField::<Pair, u16>::new("count").path();
 
-  assert_eq!(pair.field_path(count_path), Some(&7));
+  assert_eq!(ObjectRef::new(&pair).field_path(count_path), Some(&7));
 
-  *pair
+  *ObjectRefMut::new(&mut pair)
     .field_path_mut(TypedField::<Pair, u16>::new("count").path())
     .unwrap() = 9;
   assert_eq!(pair.count, 9);

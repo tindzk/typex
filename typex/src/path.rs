@@ -1,7 +1,7 @@
 use crate::{Object, ObjectRef, ObjectRefMut};
 // Keep public API names in scope for short intra-doc links.
 #[allow(unused_imports)]
-use crate::{FieldPath, FieldPathMut, PatchOperation};
+use crate::PatchOperation;
 use alloc::collections::{BTreeMap, LinkedList, VecDeque};
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -236,7 +236,7 @@ impl<'a> Iterator for OwnedPathIter<'a> {
 /// fields, [`item`](Self::item) for sequence items and [`key`](Self::key) for
 /// map entries. Lookups return `&Value` or `&mut Value` without a downcast.
 ///
-/// [`FieldPath::field_path`], [`FieldPathMut::field_path_mut`] and
+/// [`ObjectRef::field_path`], [`ObjectRefMut::field_path_mut`] and
 /// [`ObjectRefMut::set_field_path`] accept typed paths. Typed paths iterate as
 /// [`PathSegment`] values, so they can be passed to [`PatchOperation::set`].
 /// The lifetime `'k` bounds the keys that [`key`](Self::key) borrows. Paths
@@ -254,8 +254,7 @@ impl<'a> Iterator for OwnedPathIter<'a> {
 /// # Example
 ///
 /// ```
-/// # use typex::{FieldPath, FieldPathMut};
-/// # use typex::{Meta, MetaMut};
+/// # use typex::{Meta, MetaMut, ObjectRef, ObjectRefMut};
 /// #[derive(Meta, MetaMut)]
 /// struct Scope {
 ///   name: &'static str,
@@ -271,9 +270,11 @@ impl<'a> Iterator for OwnedPathIter<'a> {
 ///
 /// // `TypedPath<'static, User, &'static str>`
 /// let name = User::FIELD_SCOPES.item(0).then(Scope::FIELD_NAME);
-/// assert_eq!(user.field_path(name), Some(&"read"));
+/// assert_eq!(ObjectRef::new(&user).field_path(name), Some(&"read"));
 ///
-/// *user.field_path_mut(User::FIELD_ID.path()).unwrap() = 7;
+/// *ObjectRefMut::new(&mut user)
+///   .field_path_mut(User::FIELD_ID.path())
+///   .unwrap() = 7;
 /// assert_eq!(user.id, 7);
 /// ```
 ///
@@ -281,8 +282,7 @@ impl<'a> Iterator for OwnedPathIter<'a> {
 ///
 /// ```
 /// # use std::collections::BTreeMap;
-/// # use typex::FieldPath;
-/// # use typex::Meta;
+/// # use typex::{Meta, ObjectRef};
 /// #[derive(Meta)]
 /// struct Config {
 ///   limits: BTreeMap<String, u32>,
@@ -293,7 +293,10 @@ impl<'a> Iterator for OwnedPathIter<'a> {
 /// };
 ///
 /// let key = String::from("requests");
-/// assert_eq!(config.field_path(Config::FIELD_LIMITS.key(&key)), Some(&100));
+/// assert_eq!(
+///   ObjectRef::new(&config).field_path(Config::FIELD_LIMITS.key(&key)),
+///   Some(&100)
+/// );
 /// ```
 pub struct TypedPath<'k, Root, Value> {
   segments: Vec<PathSegment<'k>>,
@@ -313,8 +316,7 @@ pub struct TypedPath<'k, Root, Value> {
 /// # Example
 ///
 /// ```
-/// # use typex::FieldPath;
-/// # use typex::Meta;
+/// # use typex::{Meta, ObjectRef};
 /// #[derive(Meta)]
 /// struct Address {
 ///   city: &'static str,
@@ -330,7 +332,7 @@ pub struct TypedPath<'k, Root, Value> {
 /// };
 /// let city = User::FIELD_ADDRESSES.item(0).then(Address::FIELD_CITY);
 ///
-/// assert_eq!(user.field_path(city), Some(&"London"));
+/// assert_eq!(ObjectRef::new(&user).field_path(city), Some(&"London"));
 /// ```
 #[derive(Clone, Copy)]
 pub struct TypedField<Parent, Value> {
@@ -528,7 +530,7 @@ impl<'a, 'k, Root, Value> IntoIterator for &'a TypedPath<'k, Root, Value> {
 /// Path accepted by `field_path`. Its kind determines the return type.
 ///
 /// This trait is not normally used directly. Pass one of the following to
-/// [`FieldPath::field_path`], [`ObjectRef::field_path`] or `field_path` on a
+/// [`ObjectRef::field_path`] or to `field_path` on an [`Object`] or a
 /// [`dyn Meta`](crate::Meta) value:
 ///
 /// | Path | Returns |
@@ -544,8 +546,7 @@ impl<'a, 'k, Root, Value> IntoIterator for &'a TypedPath<'k, Root, Value> {
 /// # Example
 ///
 /// ```
-/// # use typex::{FieldPath, PathSegment};
-/// # use typex::Meta;
+/// # use typex::{Meta, ObjectRef, PathSegment};
 /// #[derive(Meta)]
 /// struct User {
 ///   id: u16,
@@ -555,13 +556,14 @@ impl<'a, 'k, Root, Value> IntoIterator for &'a TypedPath<'k, Root, Value> {
 /// let user = User { id: 42, tags: vec!["admin"] };
 ///
 /// // A raw path returns an `ObjectRef` that still needs a downcast
-/// let tag = user
+/// let root = ObjectRef::new(&user);
+/// let tag = root
 ///   .field_path(&[PathSegment::Field("tags"), PathSegment::Item(0)])
 ///   .unwrap();
 /// assert_eq!(tag.to_ref::<&'static str>(), Some(&"admin"));
 ///
 /// // A typed path returns `&u16` directly
-/// assert_eq!(user.field_path(User::FIELD_ID.path()), Some(&42));
+/// assert_eq!(root.field_path(User::FIELD_ID.path()), Some(&42));
 /// ```
 pub trait FieldPathQuery<'a> {
   /// Value that the path resolves to.
@@ -646,8 +648,7 @@ impl std::error::Error for ReflectiveError {}
 /// # Example
 ///
 /// ```
-/// # use typex::{FieldPathMut, PathSegment};
-/// # use typex::{Meta, MetaMut};
+/// # use typex::{Meta, MetaMut, ObjectRefMut, PathSegment};
 /// #[derive(Meta, MetaMut)]
 /// struct User {
 ///   id: u16,
@@ -657,14 +658,15 @@ impl std::error::Error for ReflectiveError {}
 /// let mut user = User { id: 42, tags: vec!["admin"] };
 ///
 /// // A raw path returns an `ObjectRefMut` that still needs a downcast
-/// let tag = user
+/// let mut root = ObjectRefMut::new(&mut user);
+/// let tag = root
 ///   .field_path_mut(&[PathSegment::Field("tags"), PathSegment::Item(0)])
 ///   .unwrap();
 /// *tag.to_mut::<&'static str>().unwrap() = "owner";
-/// assert_eq!(user.tags, ["owner"]);
 ///
 /// // A typed path returns `&mut u16` directly
-/// *user.field_path_mut(User::FIELD_ID.path()).unwrap() = 7;
+/// *root.field_path_mut(User::FIELD_ID.path()).unwrap() = 7;
+/// assert_eq!(user.tags, ["owner"]);
 /// assert_eq!(user.id, 7);
 /// ```
 pub trait FieldPathQueryMut<'r> {

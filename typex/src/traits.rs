@@ -1,9 +1,9 @@
 // Keep public API names in scope so Rustdoc can resolve short intra-doc links.
 #[allow(unused_imports)]
 use crate::{
-  AccessKind, AnyRef, ApplyError, FieldPathQuery, FieldPathQueryMut, MapAccessMut, MapEntryVisitor,
-  MutationBatch, Object, ObjectMut, ObjectOps, ObjectRef, ObjectRefMut, PatchOperation, Reflect,
-  ReflectMut, ReflectiveError, SequenceAccessMut, TypeInfo, TypedPath, ValueKind, apply_patch,
+  AccessKind, AnyRef, ApplyError, FieldPathQueryMut, MapAccessMut, MapEntryVisitor, MutationBatch,
+  Object, ObjectMut, ObjectOps, ObjectRef, ObjectRefMut, PatchOperation, Reflect, ReflectMut,
+  ReflectiveError, SequenceAccessMut, TypeInfo, ValueKind, apply_patch,
 };
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
@@ -14,44 +14,6 @@ use core::any::{Any, TypeId};
 use core::hash::Hash;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
-
-/// Traverses a nested field, item or key path from a [`Meta`] value.
-///
-/// The blanket implementation makes this helper available to every [`Meta`]
-/// value. Raw paths return [`ObjectRef`] values, while [`TypedPath`] queries
-/// return the terminal Rust reference directly.
-pub trait FieldPath: Meta {
-  /// Traverses a nested field, item or key path from the current value; see
-  /// [`FieldPathQuery`].
-  fn field_path<'a, Q: FieldPathQuery<'a>>(&'a self, query: Q) -> Option<Q::Output>
-  where
-    Self: Sized,
-  {
-    ObjectRef::new(self).field_path(query)
-  }
-}
-
-impl<T> FieldPath for T where T: Meta + ?Sized {}
-
-/// Mutable counterpart of [`FieldPath`] for [`MetaMut`] values.
-///
-/// See [`FieldPathQueryMut`] for the accepted paths, their return types and
-/// their errors.
-pub trait FieldPathMut: MetaMut {
-  /// Traverses a nested field, item or key path from the current value; see
-  /// [`FieldPathQueryMut`].
-  fn field_path_mut<'r, Q: FieldPathQueryMut<'r>>(
-    &'r mut self,
-    query: Q,
-  ) -> Result<Q::Output, ReflectiveError>
-  where
-    Self: Sized,
-  {
-    query.resolve(ObjectRefMut::new(self))
-  }
-}
-
-impl<T> FieldPathMut for T where T: MetaMut + ?Sized {}
 
 /// Failure returned when a sequential value cannot move an item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
