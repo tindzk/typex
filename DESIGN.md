@@ -96,8 +96,10 @@ key steps are `'static`. Typed key steps exist only for maps with `String` or
   `OptionAccessMut`, or `Opaque` when the value exposes no mutable structure.
 - `Meta` keeps only `type_info`, `reflect`, `field_dyn`, `item_dyn`,
   `key_dyn`, `eq_dyn`, `into_any` and `as_any`. `MetaMut` keeps only
-  `reflect_mut`, `field_mut_dyn`, `item_mut_dyn`, `key_mut_dyn`, `set_dyn`,
-  `replace_dyn`, `as_any_mut` and the hidden `as_meta`.
+  `reflect_mut`, `field_mut_dyn`, `item_mut_dyn`, `key_mut_dyn`,
+  `insert_key_dyn`, `insert_item_dyn`, `push_item_dyn`, `remove_key_dyn`,
+  `remove_item_dyn`, `move_item_dyn`, `set_dyn`, `replace_dyn`, `as_any_mut`
+  and the hidden `as_meta`.
 - `field_dyn`, `item_dyn`, `key_dyn`, `field_mut_dyn`, `item_mut_dyn` and
   `key_mut_dyn` default to going through the shape. The derives and the
   pointer, sequence and map implementations keep the defaults. `Option`
@@ -111,8 +113,8 @@ key steps are `'static`. Typed key steps exist only for maps with `String` or
   its `_dyn` name only. A concrete value or a bare trait object is wrapped
   first, as in `ObjectRef::new(&value).field_path(path)`.
 - `ObjectRef` holds the read methods. The other wrappers forward to it through
-  a macro. Structural insertion and removal live in private functions shared
-  by `ObjectRefMut` and `ObjectMut`.
+  a macro. `ObjectRefMut` and `ObjectMut` call the insertion and removal
+  methods of `MetaMut`, which default to going through the shape.
 
 ### Rationale
 
@@ -150,6 +152,7 @@ Reaching a field through the shape of a trait object costs two dynamic calls,
 one for `reflect` and one for the access method, and the shape is too large to
 return in registers. Path resolution performs one lookup per segment, so every
 navigation method used by paths stays on the traits as a single dynamic call.
+Structural insertion and removal on `MetaMut` follow the same rule.
 The `_dyn` suffix, shared with `eq_dyn` and `set_dyn`, keeps them from
 shadowing inherent methods.
 
@@ -168,6 +171,13 @@ and the access method. The instruction count benchmarks show:
   `ObjectRef` or `ObjectRefMut` and costs an additional dynamic call, about 6%
   on a two-segment path, so `Option` overrides the navigation methods that
   forward to the contained value.
+- Moving insertion and removal from private functions over `&mut dyn MetaMut`
+  onto `MetaMut` saves about 4% to 8% per direct call, and about 10% for a map
+  inside an `Option`. Patch and mutation batch operations match on
+  `reflect_mut` themselves and are unaffected. Each `MetaMut` vtable grows by
+  six entries, 48 bytes on a 64-bit target, and each type compiles its own
+  copy of the defaults. In a binary using about 30 types, vtable data grows by
+  about 6% and code by under 1%.
 
 Patch and mutation batch operations that need a sequence length read it from
 the matched `SequenceAccessMut` instead of calling `reflect` again.

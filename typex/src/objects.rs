@@ -376,67 +376,6 @@ impl PartialEq for Object {
   }
 }
 
-// Structural insertion and removal shared by `ObjectRefMut` and `ObjectMut`.
-// Each returns the rejected value in `Err` so that callers can choose their
-// error type.
-
-fn insert_key<'a>(
-  target: &'a mut dyn MetaMut,
-  key: &str,
-  value: Object,
-) -> Result<ObjectRefMut<'a>, Object> {
-  match target.reflect_mut() {
-    ReflectMut::Map(map) => map.insert_key(key, value),
-    ReflectMut::Option(option) => match option.value_mut() {
-      Some(inner) => insert_key(inner.inner, key, value),
-      None => Err(value),
-    },
-    _ => Err(value),
-  }
-}
-
-fn insert_item(
-  target: &mut dyn MetaMut,
-  index: usize,
-  value: Object,
-) -> Result<ObjectRefMut<'_>, Object> {
-  match target.reflect_mut() {
-    ReflectMut::Sequence(sequence) => sequence.insert_item(index, value),
-    ReflectMut::Option(option) if index == 0 => option.insert_value(value),
-    _ => Err(value),
-  }
-}
-
-fn push_item(target: &mut dyn MetaMut, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-  match target.reflect_mut() {
-    ReflectMut::Sequence(sequence) => sequence.push_item(value),
-    _ => Err(value),
-  }
-}
-
-fn remove_key(target: &mut dyn MetaMut, key: &str) -> Option<Object> {
-  match target.reflect_mut() {
-    ReflectMut::Map(value) => value.remove_key(key),
-    ReflectMut::Option(value) => remove_key(value.value_mut()?.inner, key),
-    _ => None,
-  }
-}
-
-fn remove_item(target: &mut dyn MetaMut, index: usize) -> Option<Object> {
-  match target.reflect_mut() {
-    ReflectMut::Sequence(value) => value.remove_item(index),
-    ReflectMut::Option(value) if index == 0 => value.take_value(),
-    _ => None,
-  }
-}
-
-fn move_item(target: &mut dyn MetaMut, from: usize, to: usize) -> Result<(), MoveItemError> {
-  match target.reflect_mut() {
-    ReflectMut::Sequence(value) => value.move_item(from, to),
-    _ => Err(MoveItemError::Unsupported),
-  }
-}
-
 /// Borrowed mutable reflective view of a [`MetaMut`] value.
 ///
 /// # Example
@@ -540,7 +479,10 @@ impl<'a> ObjectRefMut<'a> {
     key: &str,
     value: Object,
   ) -> Result<ObjectRefMut<'_>, ReflectiveError> {
-    insert_key(self.inner, key, value).map_err(|_| ReflectiveError::MutationTypeMismatch)
+    self
+      .inner
+      .insert_key_dyn(key, value)
+      .map_err(|_| ReflectiveError::MutationTypeMismatch)
   }
 
   /// Inserts a value at `index` for sequential access, returning a mutable
@@ -554,7 +496,10 @@ impl<'a> ObjectRefMut<'a> {
     index: usize,
     value: Object,
   ) -> Result<ObjectRefMut<'_>, ReflectiveError> {
-    insert_item(self.inner, index, value).map_err(|_| ReflectiveError::MutationTypeMismatch)
+    self
+      .inner
+      .insert_item_dyn(index, value)
+      .map_err(|_| ReflectiveError::MutationTypeMismatch)
   }
 
   /// Appends a value when the referenced value exposes sequential access,
@@ -563,7 +508,10 @@ impl<'a> ObjectRefMut<'a> {
   /// Returns [`ReflectiveError::MutationTypeMismatch`] when appending is
   /// unsupported or `value` has an incompatible concrete type.
   pub fn push_item(&mut self, value: Object) -> Result<ObjectRefMut<'_>, ReflectiveError> {
-    push_item(self.inner, value).map_err(|_| ReflectiveError::MutationTypeMismatch)
+    self
+      .inner
+      .push_item_dyn(value)
+      .map_err(|_| ReflectiveError::MutationTypeMismatch)
   }
 
   /// Removes the value for `key`.
@@ -571,7 +519,10 @@ impl<'a> ObjectRefMut<'a> {
   /// Returns [`ReflectiveError::PathNotFound`] when keyed removal is
   /// unsupported or `key` is not present.
   pub fn remove_key(&mut self, key: &str) -> Result<Object, ReflectiveError> {
-    remove_key(self.inner, key).ok_or(ReflectiveError::PathNotFound)
+    self
+      .inner
+      .remove_key_dyn(key)
+      .ok_or(ReflectiveError::PathNotFound)
   }
 
   /// Removes the item at `index`.
@@ -579,12 +530,15 @@ impl<'a> ObjectRefMut<'a> {
   /// Returns [`ReflectiveError::PathNotFound`] when indexed removal is
   /// unsupported or `index` is out of bounds.
   pub fn remove_item(&mut self, index: usize) -> Result<Object, ReflectiveError> {
-    remove_item(self.inner, index).ok_or(ReflectiveError::PathNotFound)
+    self
+      .inner
+      .remove_item_dyn(index)
+      .ok_or(ReflectiveError::PathNotFound)
   }
 
   /// Moves an item; see [`SequenceAccessMut::move_item`].
   pub fn move_item(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {
-    move_item(self.inner, from, to)
+    self.inner.move_item_dyn(from, to)
   }
 
   /// Overwrites the whole referenced value in place with `value`, consuming
@@ -807,38 +761,38 @@ impl ObjectMut {
   ///
   /// Options forward the insertion to their contained value.
   pub fn insert_key(&mut self, key: &str, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-    insert_key(self.0.as_mut(), key, value)
+    self.0.insert_key_dyn(key, value)
   }
 
   /// Inserts `value` at `index`; see [`SequenceAccessMut::insert_item`].
   ///
   /// An option without a value accepts an insertion at index 0.
   pub fn insert_item(&mut self, index: usize, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-    insert_item(self.0.as_mut(), index, value)
+    self.0.insert_item_dyn(index, value)
   }
 
   /// Appends `value`; see [`SequenceAccessMut::push_item`].
   pub fn push_item(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-    push_item(self.0.as_mut(), value)
+    self.0.push_item_dyn(value)
   }
 
   /// Removes and returns the value stored under `key`.
   ///
   /// Options forward the removal to their contained value.
   pub fn remove_key(&mut self, key: &str) -> Option<Object> {
-    remove_key(self.0.as_mut(), key)
+    self.0.remove_key_dyn(key)
   }
 
   /// Removes and returns the item at `index`.
   ///
   /// An option gives up its contained value at index 0.
   pub fn remove_item(&mut self, index: usize) -> Option<Object> {
-    remove_item(self.0.as_mut(), index)
+    self.0.remove_item_dyn(index)
   }
 
   /// Moves an item; see [`SequenceAccessMut::move_item`].
   pub fn move_item(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {
-    move_item(self.0.as_mut(), from, to)
+    self.0.move_item_dyn(from, to)
   }
 
   /// Applies an ordered list of [`PatchOperation`] values. A failed operation

@@ -415,6 +415,71 @@ pub trait MetaMut: Meta {
     }
   }
 
+  /// Inserts `value` under `key`; see [`MapAccessMut::insert_key`]. Options
+  /// forward the insertion to their contained value.
+  fn insert_key_dyn(&mut self, key: &str, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect_mut() {
+      ReflectMut::Map(map) => map.insert_key(key, value),
+      ReflectMut::Option(option) => match option.value_mut() {
+        Some(inner) => inner.inner.insert_key_dyn(key, value),
+        None => Err(value),
+      },
+      _ => Err(value),
+    }
+  }
+
+  /// Inserts `value` at `index`; see [`SequenceAccessMut::insert_item`]. An
+  /// option without a value accepts an insertion at index 0.
+  fn insert_item_dyn(&mut self, index: usize, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect_mut() {
+      ReflectMut::Sequence(sequence) => sequence.insert_item(index, value),
+      ReflectMut::Option(option) if index == 0 => option.insert_value(value),
+      _ => Err(value),
+    }
+  }
+
+  /// Appends `value`; see [`SequenceAccessMut::push_item`].
+  fn push_item_dyn(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect_mut() {
+      ReflectMut::Sequence(sequence) => sequence.push_item(value),
+      _ => Err(value),
+    }
+  }
+
+  /// Removes and returns the value stored under `key`. Options forward the
+  /// removal to their contained value.
+  fn remove_key_dyn(&mut self, key: &str) -> Option<Object> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect_mut() {
+      ReflectMut::Map(value) => value.remove_key(key),
+      ReflectMut::Option(value) => value.value_mut()?.inner.remove_key_dyn(key),
+      _ => None,
+    }
+  }
+
+  /// Removes and returns the item at `index`. An option gives up its
+  /// contained value at index 0.
+  fn remove_item_dyn(&mut self, index: usize) -> Option<Object> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect_mut() {
+      ReflectMut::Sequence(value) => value.remove_item(index),
+      ReflectMut::Option(value) if index == 0 => value.take_value(),
+      _ => None,
+    }
+  }
+
+  /// Moves an item; see [`SequenceAccessMut::move_item`].
+  fn move_item_dyn(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect_mut() {
+      ReflectMut::Sequence(value) => value.move_item(from, to),
+      _ => Err(MoveItemError::Unsupported),
+    }
+  }
+
   /// Overwrites the whole value with `value` and drops the previous value.
   ///
   /// Returns `value` in `Err` if its concrete type differs from `Self`.

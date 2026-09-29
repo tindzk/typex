@@ -258,6 +258,81 @@ fn generic_map_equality((left, right): (EntryMap, EntryMap)) -> bool {
   black_box(ObjectRef::new(&left).eq_dyn(ObjectRef::new(&right)))
 }
 
+fn sequence_input() -> (Vec<u8>, Object) {
+  (vec![1, 2, 3], Object::new(4_u8))
+}
+
+fn map_input() -> (BTreeMap<String, u8>, Object) {
+  (
+    BTreeMap::from([(String::from("primary"), 1)]),
+    Object::new(2_u8),
+  )
+}
+
+fn optional_map_input() -> (Option<BTreeMap<String, u8>>, Object) {
+  let (map, value) = map_input();
+  (Some(map), value)
+}
+
+#[library_benchmark]
+#[bench::default(setup = sequence_input)]
+fn direct_push_item((mut value, item): (Vec<u8>, Object)) -> Vec<u8> {
+  let _ = black_box(ObjectRefMut::new(&mut value).push_item(item).is_ok());
+  black_box(value)
+}
+
+#[library_benchmark]
+#[bench::default(setup = sequence_input)]
+fn direct_insert_item((mut value, item): (Vec<u8>, Object)) -> Vec<u8> {
+  let _ = black_box(ObjectRefMut::new(&mut value).insert_item(1, item).is_ok());
+  black_box(value)
+}
+
+#[library_benchmark]
+#[bench::default(setup = sequence_input)]
+fn direct_remove_item((mut value, _): (Vec<u8>, Object)) -> Vec<u8> {
+  let _ = black_box(ObjectRefMut::new(&mut value).remove_item(1));
+  black_box(value)
+}
+
+#[library_benchmark]
+#[bench::default(setup = sequence_input)]
+fn direct_move_item((mut value, _): (Vec<u8>, Object)) -> Vec<u8> {
+  let _ = black_box(ObjectRefMut::new(&mut value).move_item(0, 2));
+  black_box(value)
+}
+
+#[library_benchmark]
+#[bench::default(setup = map_input)]
+fn direct_insert_key((mut value, item): (BTreeMap<String, u8>, Object)) -> BTreeMap<String, u8> {
+  let _ = black_box(
+    ObjectRefMut::new(&mut value)
+      .insert_key("secondary", item)
+      .is_ok(),
+  );
+  black_box(value)
+}
+
+#[library_benchmark]
+#[bench::default(setup = map_input)]
+fn direct_remove_key((mut value, _): (BTreeMap<String, u8>, Object)) -> BTreeMap<String, u8> {
+  let _ = black_box(ObjectRefMut::new(&mut value).remove_key("primary"));
+  black_box(value)
+}
+
+#[library_benchmark]
+#[bench::default(setup = optional_map_input)]
+fn direct_option_insert_key(
+  (mut value, item): (Option<BTreeMap<String, u8>>, Object),
+) -> Option<BTreeMap<String, u8>> {
+  let _ = black_box(
+    ObjectRefMut::new(&mut value)
+      .insert_key("secondary", item)
+      .is_ok(),
+  );
+  black_box(value)
+}
+
 library_benchmark_group!(
   name = typex_group;
   // Add a versioned benchmark when its workload needs an incompatible API.
@@ -265,7 +340,8 @@ library_benchmark_group!(
   benchmarks = apply_patch, mutation_batch_commit, nested_field_path, nested_item_path,
     nested_key_path, owned_path_from_slice,
     owned_path_iter, generic_map_equality, derived_struct_equality, set_in_place, set_via_replace, move_vec_native, move_vec_deque_native,
-    move_linked_list_native
+    move_linked_list_native, direct_push_item, direct_insert_item, direct_remove_item,
+    direct_move_item, direct_insert_key, direct_remove_key, direct_option_insert_key
 );
 
 main!(
