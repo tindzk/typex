@@ -115,6 +115,9 @@ key steps are `'static`. Typed key steps exist only for maps with `String` or
 - `ObjectRef` holds the read methods. The other wrappers forward to it through
   a macro. `ObjectRefMut` and `ObjectMut` call the insertion and removal
   methods of `MetaMut`, which default to going through the shape.
+- The owned wrappers do not implement `Deref`. `AsRef` returns the inner trait
+  object when a caller needs it. Wrappers compare with `==` rather than
+  `eq_dyn`.
 
 ### Rationale
 
@@ -130,10 +133,11 @@ wrappers apply only to those receiver types, so they cannot shadow methods of
 concrete types.
 
 The wrappers are the only home of these methods. With inherent methods on
-trait objects as well, `Object` would reach them through `Deref`, `ObjectRef`
-would forward to them and `dyn MetaMut` and `dyn SendMeta` would need copies,
-so the same API would exist in two forms. Keeping one form means a trait
-object is always wrapped before use, as a concrete value is.
+trait objects as well, `ObjectRef` would forward to them and `dyn MetaMut` and
+`dyn SendMeta` would need copies, so the same API would exist in two forms.
+`Deref` from a wrapper to its trait object would do the same in reverse,
+placing the `_dyn` hooks next to the plain methods. Keeping one form means a
+trait object is always wrapped before use, as a concrete value is.
 
 Path traversal follows the same rule. A blanket extension trait would put
 `field_path` on every `Meta` type, including pointer types that dereference to
@@ -290,7 +294,7 @@ serve trait-object callers. Each implementation provides both methods, which
 
 `Object`, `ObjectMut` and `SendObject` hold reflective values but are not
 reflective values themselves, so they do not implement `Meta`. Convert between
-them with `into_object`, and inspect a wrapper through `Deref`.
+them with `into_object`, and inspect a wrapper through its own methods.
 
 A wrapper that implemented `Meta` by forwarding to its inner value would
 report the inner type. `Object::new(wrapper)` could then not be downcast back

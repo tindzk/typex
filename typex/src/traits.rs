@@ -142,7 +142,7 @@ fn structural_eq<T: Meta + ?Sized>(this: &T, other: &dyn Meta) -> bool {
   let this_any = this.as_any();
   match (this.reflect(), other.reflect()) {
     (Reflect::Option(a), Reflect::Option(b)) => match (a, b) {
-      (Some(a), Some(b)) => a.eq_dyn(b),
+      (Some(a), Some(b)) => a == b,
       (None, None) => true,
       _ => false,
     },
@@ -157,7 +157,7 @@ fn structural_eq<T: Meta + ?Sized>(this: &T, other: &dyn Meta) -> bool {
           (Some(x), Some(y)) if is_self_reference(x, this_any) => {
             is_self_reference(y, other.as_any())
           }
-          (Some(x), Some(y)) => x.eq_dyn(y),
+          (Some(x), Some(y)) => x == y,
           _ => false,
         })
     }
@@ -173,9 +173,7 @@ fn structural_eq<T: Meta + ?Sized>(this: &T, other: &dyn Meta) -> bool {
           equal = false;
           return false;
         };
-        equal = b
-          .key(key)
-          .is_some_and(|other_value| value.eq_dyn(other_value));
+        equal = b.key(key).is_some_and(|other_value| value == other_value);
         equal
       });
       equal
@@ -184,7 +182,7 @@ fn structural_eq<T: Meta + ?Sized>(this: &T, other: &dyn Meta) -> bool {
     (Reflect::Sequence(a), Reflect::Sequence(b)) => {
       a.len() == b.len()
         && (0..a.len()).all(|index| match (a.item(index), b.item(index)) {
-          (Some(x), Some(y)) => x.eq_dyn(y),
+          (Some(x), Some(y)) => x == y,
           _ => false,
         })
     }

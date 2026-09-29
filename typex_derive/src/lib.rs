@@ -188,7 +188,7 @@ fn expand_meta_mut(input: &DeriveInput) -> syn::Result<TokenStream2> {
         &mut self,
         __typex_value: ::typex::Object,
       ) -> ::core::result::Result<::typex::Object, ::typex::Object> {
-        if !::typex::Meta::as_any(&*__typex_value).is::<Self>() {
+        if !::typex::ObjectOps::is::<Self>(&__typex_value) {
           return ::core::result::Result::Err(__typex_value);
         }
 
@@ -205,7 +205,7 @@ fn expand_meta_mut(input: &DeriveInput) -> syn::Result<TokenStream2> {
         &mut self,
         __typex_value: ::typex::Object,
       ) -> ::core::result::Result<(), ::typex::Object> {
-        if !::typex::Meta::as_any(&*__typex_value).is::<Self>() {
+        if !::typex::ObjectOps::is::<Self>(&__typex_value) {
           return ::core::result::Result::Err(__typex_value);
         }
 

@@ -19,23 +19,6 @@ fn object_into_inner_returns_the_boxed_meta_value() {
 }
 
 #[test]
-fn object_into_rc_preserves_the_meta_value() {
-  let object = Object::new(Number(7));
-  let shared = object.into_rc();
-  let shared_clone = Rc::clone(&shared);
-
-  assert_eq!(Rc::strong_count(&shared), 2);
-  assert_eq!(
-    ObjectRef::new(&*shared).to_ref::<Number>(),
-    Some(&Number(7))
-  );
-  assert_eq!(
-    ObjectRef::new(&*shared_clone).to_ref::<Number>(),
-    Some(&Number(7))
-  );
-}
-
-#[test]
 fn object_mut_constructor_and_into_inner_work() {
   let object = ObjectMut::new(Number(7));
 

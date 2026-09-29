@@ -249,13 +249,13 @@ fn derived_equality_input() -> (PatchState, PatchState) {
 #[library_benchmark]
 #[bench::default(setup = derived_equality_input)]
 fn derived_struct_equality((left, right): (PatchState, PatchState)) -> bool {
-  black_box(ObjectRef::new(&left).eq_dyn(ObjectRef::new(&right)))
+  black_box(ObjectRef::new(&left) == ObjectRef::new(&right))
 }
 
 #[library_benchmark]
 #[bench::default(setup = equality_input)]
 fn generic_map_equality((left, right): (EntryMap, EntryMap)) -> bool {
-  black_box(ObjectRef::new(&left).eq_dyn(ObjectRef::new(&right)))
+  black_box(ObjectRef::new(&left) == ObjectRef::new(&right))
 }
 
 fn sequence_input() -> (Vec<u8>, Object) {

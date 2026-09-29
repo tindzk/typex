@@ -6,12 +6,10 @@ use crate::{
   ReflectiveError, SequenceAccessMut, TypeInfo, TypedPath, ValueKind, apply_patch,
 };
 use alloc::boxed::Box;
-use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::any::Any;
 use core::fmt;
-use core::ops::{Deref, DerefMut};
 
 fn fmt_meta(f: &mut fmt::Formatter<'_>, name: &str, meta: &dyn Meta) -> fmt::Result {
   let view = ObjectRef::new(meta);
@@ -183,13 +181,6 @@ impl<'a> ObjectRef<'a> {
     self.inner.as_any().is::<T>()
   }
 
-  /// Compares the referenced value against `other` structurally; see
-  /// [`Meta::eq_dyn`].
-  #[inline]
-  pub fn eq_dyn(&self, other: ObjectRef<'_>) -> bool {
-    self.inner.eq_dyn(other.inner)
-  }
-
   /// Traverses a nested field, item or key path. Accepts a raw
   /// `&[PathSegment]` (returns [`ObjectRef`]) or a typed [`TypedPath`]
   /// (returns `&'a Value`); see [`FieldPathQuery`].
@@ -206,6 +197,7 @@ impl fmt::Debug for ObjectRef<'_> {
 
 /// Structural equality via [`Meta::eq_dyn`].
 impl PartialEq for ObjectRef<'_> {
+  #[inline]
   fn eq(&self, other: &Self) -> bool {
     self.inner.eq_dyn(other.inner)
   }
@@ -216,6 +208,12 @@ impl PartialEq for ObjectRef<'_> {
 macro_rules! forward_object_reads {
   ($ty:ty) => {
     impl $ty {
+      /// Returns runtime type metadata; see [`ObjectRef::type_info`].
+      #[inline]
+      pub fn type_info(&self) -> TypeInfo {
+        self.view().type_info()
+      }
+
       /// Returns the Rust type name; see [`ObjectRef::type_name`].
       #[inline]
       pub fn type_name(&self) -> &'static str {
@@ -342,12 +340,6 @@ impl Object {
     self.0
   }
 
-  /// Converts into a reference-counted [`Meta`] trait object.
-  #[inline]
-  pub fn into_rc(self) -> Rc<dyn Meta> {
-    Rc::from(self.0)
-  }
-
   fn view(&self) -> ObjectRef<'_> {
     ObjectRef::new(self.0.as_ref())
   }
@@ -356,14 +348,6 @@ impl Object {
 impl From<Box<dyn Meta>> for Object {
   fn from(value: Box<dyn Meta>) -> Self {
     Self(value)
-  }
-}
-
-impl Deref for Object {
-  type Target = dyn Meta;
-
-  fn deref(&self) -> &Self::Target {
-    self.0.as_ref()
   }
 }
 
@@ -381,6 +365,7 @@ impl fmt::Debug for Object {
 
 /// Structural equality via [`Meta::eq_dyn`].
 impl PartialEq for Object {
+  #[inline]
   fn eq(&self, other: &Self) -> bool {
     Meta::eq_dyn(self.0.as_ref(), other.0.as_ref())
   }
@@ -426,12 +411,6 @@ impl<'a> ObjectRefMut<'a> {
     Self { inner }
   }
 
-  /// Returns runtime type metadata for the referenced value.
-  #[inline]
-  pub fn type_info(&self) -> TypeInfo {
-    self.inner.type_info()
-  }
-
   fn view(&self) -> ObjectRef<'_> {
     ObjectRef::new(self.inner.as_meta())
   }
@@ -439,13 +418,6 @@ impl<'a> ObjectRefMut<'a> {
   /// Checks whether the referenced value has type `T`.
   pub fn is<T: 'static>(&self) -> bool {
     self.inner.as_any().is::<T>()
-  }
-
-  /// Compares the referenced value against `other` structurally; see
-  /// [`Meta::eq_dyn`].
-  #[inline]
-  pub fn eq_dyn(&self, other: &ObjectRefMut<'_>) -> bool {
-    self.inner.eq_dyn(other.inner.as_meta())
   }
 
   /// Returns a mutable field by name.
@@ -652,8 +624,9 @@ impl fmt::Debug for ObjectRefMut<'_> {
 
 /// Structural equality via [`Meta::eq_dyn`].
 impl PartialEq for ObjectRefMut<'_> {
+  #[inline]
   fn eq(&self, other: &Self) -> bool {
-    self.eq_dyn(other)
+    self.inner.eq_dyn(other.inner.as_meta())
   }
 }
 
@@ -855,20 +828,6 @@ impl From<ObjectMut> for Object {
   }
 }
 
-impl Deref for ObjectMut {
-  type Target = dyn MetaMut;
-
-  fn deref(&self) -> &Self::Target {
-    self.0.as_ref()
-  }
-}
-
-impl DerefMut for ObjectMut {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    self.0.as_mut()
-  }
-}
-
 impl AsRef<dyn MetaMut> for ObjectMut {
   fn as_ref(&self) -> &(dyn MetaMut + 'static) {
     self.0.as_ref()
@@ -985,14 +944,6 @@ impl SendObject {
 impl From<Box<dyn SendMeta>> for SendObject {
   fn from(value: Box<dyn SendMeta>) -> Self {
     Self(value)
-  }
-}
-
-impl Deref for SendObject {
-  type Target = dyn SendMeta;
-
-  fn deref(&self) -> &Self::Target {
-    self.0.as_ref()
   }
 }
 
