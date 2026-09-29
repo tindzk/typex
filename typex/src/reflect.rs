@@ -40,6 +40,7 @@ pub enum Reflect<'a> {
 
 impl Reflect<'_> {
   /// Returns the structural kind that this shape represents.
+  #[inline]
   pub fn kind(&self) -> ValueKind {
     match self {
       Self::Scalar => ValueKind::Scalar,

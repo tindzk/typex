@@ -78,21 +78,25 @@ pub struct OwnedPath {
 
 impl OwnedPath {
   /// Creates an empty path.
+  #[inline]
   pub fn new() -> Self {
     Self::default()
   }
 
   /// Returns whether the path has no segments.
+  #[inline]
   pub fn is_empty(&self) -> bool {
     self.encoded.is_empty()
   }
 
   /// Returns the number of segments.
+  #[inline]
   pub fn len(&self) -> usize {
     self.iter().count()
   }
 
   /// Appends a segment.
+  #[inline]
   pub fn push(&mut self, segment: PathSegment<'_>) {
     let (tag, number, name) = match segment {
       PathSegment::Field(name) => ('f', name.len(), name),
@@ -105,6 +109,7 @@ impl OwnedPath {
   }
 
   /// Returns an iterator over the segments in order.
+  #[inline]
   pub fn iter(&self) -> OwnedPathIter<'_> {
     OwnedPathIter {
       rest: &self.encoded,
@@ -198,6 +203,7 @@ pub struct OwnedPathIter<'a> {
 impl<'a> Iterator for OwnedPathIter<'a> {
   type Item = PathSegment<'a>;
 
+  #[inline]
   fn next(&mut self) -> Option<PathSegment<'a>> {
     let bytes = self.rest.as_bytes();
     let tag = *bytes.first()?;
@@ -576,6 +582,7 @@ pub trait FieldPathQuery<'a> {
 impl<'a, 'b, 'c> FieldPathQuery<'a> for &'b [PathSegment<'c>] {
   type Output = ObjectRef<'a>;
 
+  #[inline]
   fn resolve(self, root: ObjectRef<'a>) -> Option<Self::Output> {
     let mut current = root;
 
@@ -687,10 +694,12 @@ impl<'r, 'b, 'c> FieldPathQueryMut<'r> for &'b [PathSegment<'c>] {
   type Output = ObjectRefMut<'r>;
   type Value = Object;
 
+  #[inline]
   fn resolve(self, root: ObjectRefMut<'r>) -> Result<Self::Output, ReflectiveError> {
     ObjectRefMut::path_from(root.inner, self).ok_or(ReflectiveError::PathNotFound)
   }
 
+  #[inline]
   fn assign(self, root: ObjectRefMut<'r>, value: Object) -> Result<(), ReflectiveError> {
     FieldPathQueryMut::resolve(self, root)?.set(value)
   }

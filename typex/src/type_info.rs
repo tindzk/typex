@@ -35,11 +35,13 @@ impl TypeInfo {
   }
 
   /// Returns the Rust type name, equivalent to [`core::any::type_name`].
+  #[inline]
   pub fn type_name(&self) -> &'static str {
     self.name
   }
 
   /// Returns the type's [`TypeId`].
+  #[inline]
   pub fn id(&self) -> TypeId {
     self.id
   }

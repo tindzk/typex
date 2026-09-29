@@ -178,6 +178,13 @@ and the access method. The instruction count benchmarks show:
   six entries, 48 bytes on a 64-bit target, and each type compiles its own
   copy of the defaults. In a binary using about 30 types, vtable data grows by
   about 6% and code by under 1%.
+- `#[inline]` on the small non-generic methods of the wrappers, `TypeInfo`,
+  `Reflect::kind`, `OwnedPath` and the raw path resolvers lets other crates
+  inline them. It saves about 5% to 8% on paths, 12% to 20% on owned paths
+  and 3% to 10% on direct insertion and removal. When the caller knows the
+  concrete type, inlining also removes the dynamic calls, as in a direct
+  `move_item` on a `Vec`, which drops by about 70%. Code size grows by about
+  0.2%.
 
 Patch and mutation batch operations that need a sequence length read it from
 the matched `SequenceAccessMut` instead of calling `reflect` again.
