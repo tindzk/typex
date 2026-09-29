@@ -25,8 +25,14 @@ fn object_into_rc_preserves_the_meta_value() {
   let shared_clone = Rc::clone(&shared);
 
   assert_eq!(Rc::strong_count(&shared), 2);
-  assert_eq!(shared.to_ref::<Number>(), Some(&Number(7)));
-  assert_eq!(shared_clone.to_ref::<Number>(), Some(&Number(7)));
+  assert_eq!(
+    ObjectRef::new(&*shared).to_ref::<Number>(),
+    Some(&Number(7))
+  );
+  assert_eq!(
+    ObjectRef::new(&*shared_clone).to_ref::<Number>(),
+    Some(&Number(7))
+  );
 }
 
 #[test]

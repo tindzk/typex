@@ -104,16 +104,15 @@ key steps are `'static`. Typed key steps exist only for maps with `String` or
   overrides them to reach the contained value directly.
 - `SequenceAccessMut` extends `SequenceAccess`, so a mutable sequence shape
   also reports its length.
-- Callers use inherent methods with the familiar names, such as `len`, `key`
-  and `keys`, on `dyn Meta`, `dyn MetaMut`, `dyn SendMeta` and the `Object*`
-  wrappers. These methods dispatch on the shape.
-- Trait objects expose each trait operation under its `_dyn` name only. The
-  unsuffixed `field`, `field_mut`, `item_mut`, `key_mut`, `set` and `replace`
-  exist only on `Object`, `ObjectMut`, `SendObject`, `ObjectRef` and
-  `ObjectRefMut`.
-- `field_path` and `field_path_mut` exist only as inherent methods on trait
-  objects and the `Object*` wrappers. A concrete value is wrapped first, as in
-  `ObjectRef::new(&value).field_path(path)`.
+- Callers use inherent methods with the familiar names, such as `len`, `key`,
+  `keys` and `field_path`, on `Object`, `ObjectMut`, `SendObject`, `ObjectRef`
+  and `ObjectRefMut`. These methods dispatch on the shape.
+- Trait objects have no inherent methods and expose each trait operation under
+  its `_dyn` name only. A concrete value or a bare trait object is wrapped
+  first, as in `ObjectRef::new(&value).field_path(path)`.
+- `ObjectRef` holds the read methods. The other wrappers forward to it through
+  a macro. Structural insertion and removal live in private functions shared
+  by `ObjectRefMut` and `ObjectMut`.
 
 ### Rationale
 
@@ -124,14 +123,19 @@ type's inherent method. Users import `Meta` and `MetaMut` for their derives, so
 trait methods named `len`, `is_empty`, `keys` or `replace` would make
 `part.is_empty()` on a `&&str` return `Option<bool>` and
 `boxed_text.replace('a', "b")` fail to compile. The access traits carry those
-names instead, and callers never need to import them. Inherent methods on trait
-objects and wrappers apply only to those receiver types, so they cannot shadow
-methods of concrete types.
+names instead, and callers never need to import them. Inherent methods on the
+wrappers apply only to those receiver types, so they cannot shadow methods of
+concrete types.
+
+The wrappers are the only home of these methods. With inherent methods on
+trait objects as well, `Object` would reach them through `Deref`, `ObjectRef`
+would forward to them and `dyn MetaMut` and `dyn SendMeta` would need copies,
+so the same API would exist in two forms. Keeping one form means a trait
+object is always wrapped before use, as a concrete value is.
 
 Path traversal follows the same rule. A blanket extension trait would put
 `field_path` on every `Meta` type, including pointer types that dereference to
-types with their own methods, and a `Self: Sized` default on `Meta` would be
-ambiguous with the inherent method on `dyn Meta`. Wrapping a value in
+types with their own methods. Wrapping a value in
 `ObjectRef` or `ObjectRefMut` before navigating keeps one entry point for
 single and multiple hops.
 
@@ -156,7 +160,7 @@ and the access method. The instruction count benchmarks show:
 - A derived or built-in override that performs a direct lookup matches the
   default exactly, so the derives and the `Box`, `Rc`, `Arc`, sequence and map
   implementations do not override the navigation methods.
-- A free function or inherent method over `&dyn Meta` cannot inline the shape
+- A free function over `&dyn Meta` cannot inline the shape
   and costs about 14% more on a two-segment field path. Moving `item` and
   `key` lookups onto the trait as `item_dyn` and `key_dyn` saves about 6% on
   a two-segment path.
@@ -295,8 +299,9 @@ records because they are not reflective operations that can be inverted.
 bridge. Upcasting `&dyn MetaMut` or `&dyn SendMeta` to `&dyn Meta` only
 stabilised in Rust 1.86, while this crate's MSRV is Rust 1.85. The bridge
 avoids raising the MSRV. `set_body!` and the derives generate it for
-`MetaMut`, and the blanket implementation provides it for `SendMeta`. The read
-methods on `dyn MetaMut` and `dyn SendMeta` forward through it.
+`MetaMut`, and the blanket implementation provides it for `SendMeta`.
+`ObjectMut`, `ObjectRefMut` and `SendObject` build their `ObjectRef` through
+it.
 
 Remove the bridges when the MSRV has moved beyond Rust 1.86 and the relevant
 trait-object coercions are available.

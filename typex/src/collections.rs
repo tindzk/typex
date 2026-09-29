@@ -1,7 +1,8 @@
 use crate::{
-  AnyRef, MapAccess, MapAccessMut, MapEntryVisitor, Meta, MetaMut, Object, ObjectRef, ObjectRefMut,
-  OptionAccessMut, Reflect, ReflectMut, SequenceAccess, SequenceAccessMut, StructAccess,
-  StructAccessMut, TypedMapAccess, TypedMapAccessMut, as_map_key, btree_map_get, btree_map_get_mut,
+  AnyRef, MapAccess, MapAccessMut, MapEntryVisitor, Meta, MetaMut, Object, ObjectOps, ObjectRef,
+  ObjectRefMut, OptionAccessMut, Reflect, ReflectMut, SequenceAccess, SequenceAccessMut,
+  StructAccess, StructAccessMut, TypedMapAccess, TypedMapAccessMut, as_map_key, btree_map_get,
+  btree_map_get_mut,
 };
 #[cfg(feature = "std")]
 use crate::{hash_map_get, hash_map_get_mut};

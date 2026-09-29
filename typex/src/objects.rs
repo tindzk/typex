@@ -1,9 +1,9 @@
 // Keep public API names in scope for short intra-doc links.
 #[allow(unused_imports)]
 use crate::{
-  AccessKind, ApplyError, FieldPathQuery, FieldPathQueryMut, MapEntryVisitor, Meta, MetaMut,
-  MoveItemError, MutationBatch, PatchOperation, PathSegment, Reflect, ReflectiveError,
-  SequenceAccessMut, TypeInfo, TypedPath, ValueKind, apply_patch,
+  AccessKind, ApplyError, FieldPathQuery, FieldPathQueryMut, MapAccessMut, MapEntryVisitor, Meta,
+  MetaMut, MoveItemError, MutationBatch, PatchOperation, PathSegment, Reflect, ReflectMut,
+  ReflectiveError, SequenceAccessMut, TypeInfo, TypedPath, ValueKind, apply_patch,
 };
 use alloc::boxed::Box;
 use alloc::rc::Rc;
@@ -14,201 +14,12 @@ use core::fmt;
 use core::ops::{Deref, DerefMut};
 
 fn fmt_meta(f: &mut fmt::Formatter<'_>, name: &str, meta: &dyn Meta) -> fmt::Result {
+  let view = ObjectRef::new(meta);
   f.debug_struct(name)
-    .field("type_name", &meta.type_name())
-    .field("kind", &meta.kind())
+    .field("type_name", &view.type_name())
+    .field("kind", &view.kind())
     .finish()
 }
-
-impl dyn Meta + '_ {
-  /// Downcasts the reference to `T`.
-  pub fn to_ref<T: 'static>(&self) -> Option<&T> {
-    self.as_any().downcast_ref::<T>()
-  }
-
-  /// Checks whether the value has type `T`.
-  pub fn is<T: 'static>(&self) -> bool {
-    self.as_any().is::<T>()
-  }
-
-  /// Returns the Rust type name from `core::any::type_name`.
-  pub fn type_name(&self) -> &'static str {
-    self.type_info().type_name()
-  }
-
-  /// Returns the type's [`TypeId`](core::any::TypeId).
-  pub fn id(&self) -> core::any::TypeId {
-    self.type_info().id()
-  }
-
-  /// Returns this value's structural kind.
-  pub fn kind(&self) -> ValueKind {
-    self.reflect().kind()
-  }
-
-  /// Returns the named or indexed access exposed by this value, if any.
-  ///
-  /// An option reports the access of its contained value.
-  pub fn access_kind(&self) -> Option<AccessKind> {
-    match self.reflect() {
-      Reflect::Scalar => None,
-      Reflect::Struct(value) => (!value.field_names().is_empty()).then_some(AccessKind::Field),
-      Reflect::Sequence(_) => Some(AccessKind::Item),
-      Reflect::Map(value) => Some(value.access_kind()),
-      Reflect::Option(value) => value?.access_kind(),
-    }
-  }
-
-  /// Returns the contained value when this is `Some(value)`.
-  pub fn option_value(&self) -> Option<ObjectRef<'_>> {
-    match self.reflect() {
-      Reflect::Option(value) => value,
-      _ => None,
-    }
-  }
-
-  /// Returns the exposed field names in declaration order.
-  pub fn field_names(&self) -> &'static [&'static str] {
-    match self.reflect() {
-      Reflect::Struct(value) => value.field_names(),
-      Reflect::Option(Some(value)) => value.field_names(),
-      _ => &[],
-    }
-  }
-
-  /// Returns an item at `index`; see [`Meta::item_dyn`].
-  #[inline]
-  pub fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-    self.item_dyn(index)
-  }
-
-  /// Returns the number of exposed structural items, when available.
-  ///
-  /// For maps, this is the number of keyed entries. An option has one item
-  /// when it holds a value.
-  pub fn len(&self) -> Option<usize> {
-    match self.reflect() {
-      Reflect::Struct(value) => value.len(),
-      Reflect::Sequence(value) => Some(value.len()),
-      Reflect::Map(value) => Some(value.len()),
-      Reflect::Option(value) => Some(usize::from(value.is_some())),
-      Reflect::Scalar => None,
-    }
-  }
-
-  /// Checks whether the value has no exposed structural items, when available.
-  pub fn is_empty(&self) -> Option<bool> {
-    self.len().map(|len| len == 0)
-  }
-
-  /// Returns a value for a string-like `key`; see [`Meta::key_dyn`].
-  #[inline]
-  pub fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
-    self.key_dyn(key)
-  }
-
-  /// Returns the keys as strings for map-like access.
-  pub fn keys(&self) -> Option<Vec<String>> {
-    match self.reflect() {
-      Reflect::Map(value) => value.keys(),
-      Reflect::Option(value) => value?.keys(),
-      _ => None,
-    }
-  }
-
-  /// Passes each map entry to `visitor` until it returns `false`.
-  ///
-  /// Returns `false` when the value has no map-like access. Stopping early
-  /// still returns `true`.
-  pub fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
-    match self.reflect() {
-      Reflect::Map(value) => {
-        value.visit_entries(visitor);
-        true
-      }
-      Reflect::Option(Some(value)) => value.visit_map_entries(visitor),
-      _ => false,
-    }
-  }
-
-  /// Traverses a nested field, item or key path; see [`FieldPathQuery`].
-  pub fn field_path<'a, Q: FieldPathQuery<'a>>(&'a self, query: Q) -> Option<Q::Output> {
-    ObjectRef::new(self).field_path(query)
-  }
-}
-
-/// Generates read accessors that forward to the [`Meta`] trait object returned
-/// by `as_meta`, for trait objects whose trait cannot be upcast to [`Meta`]
-/// under the crate's MSRV.
-macro_rules! forward_meta_reads {
-  ($ty:ty) => {
-    impl $ty {
-      /// Returns the Rust type name from `core::any::type_name`.
-      pub fn type_name(&self) -> &'static str {
-        self.as_meta().type_name()
-      }
-
-      /// Returns the type's [`TypeId`](core::any::TypeId).
-      pub fn id(&self) -> core::any::TypeId {
-        self.as_meta().id()
-      }
-
-      /// Returns this value's structural kind.
-      pub fn kind(&self) -> ValueKind {
-        self.as_meta().kind()
-      }
-
-      /// Returns the named or indexed access exposed by this value, if any.
-      pub fn access_kind(&self) -> Option<AccessKind> {
-        self.as_meta().access_kind()
-      }
-
-      /// Returns the contained value when this is `Some(value)`.
-      pub fn option_value(&self) -> Option<ObjectRef<'_>> {
-        self.as_meta().option_value()
-      }
-
-      /// Returns the exposed field names in declaration order.
-      pub fn field_names(&self) -> &'static [&'static str] {
-        self.as_meta().field_names()
-      }
-
-      /// Returns an item at `index`.
-      pub fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-        self.as_meta().item(index)
-      }
-
-      /// Returns the number of exposed structural items, when available.
-      pub fn len(&self) -> Option<usize> {
-        self.as_meta().len()
-      }
-
-      /// Checks whether the value has no exposed structural items, when
-      /// available.
-      pub fn is_empty(&self) -> Option<bool> {
-        self.as_meta().is_empty()
-      }
-
-      /// Returns a value for a string-like `key`.
-      pub fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
-        self.as_meta().key(key)
-      }
-
-      /// Returns the keys as strings for map-like access.
-      pub fn keys(&self) -> Option<Vec<String>> {
-        self.as_meta().keys()
-      }
-
-      /// Passes each map entry to `visitor` until it returns `false`.
-      pub fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
-        self.as_meta().visit_map_entries(visitor)
-      }
-    }
-  };
-}
-
-forward_meta_reads!(dyn MetaMut + '_);
-forward_meta_reads!(dyn SendMeta + '_);
 
 /// Structural equality via [`Meta::eq_dyn`].
 impl PartialEq for dyn Meta + '_ {
@@ -252,62 +63,93 @@ impl<'a> ObjectRef<'a> {
 
   /// Returns the Rust type name of the referenced value.
   pub fn type_name(&self) -> &'static str {
-    self.inner.type_name()
+    self.inner.type_info().type_name()
   }
 
   /// Returns the type ID of the referenced value.
   pub fn id(&self) -> core::any::TypeId {
-    self.inner.id()
+    self.inner.type_info().id()
   }
 
   /// Determines the structural shape of the referenced value.
   pub fn kind(&self) -> ValueKind {
-    self.inner.kind()
+    self.inner.reflect().kind()
   }
 
   /// Returns the named or keyed access exposed by the referenced value, if any.
+  ///
+  /// An option reports the access of its contained value.
   pub fn access_kind(&self) -> Option<AccessKind> {
-    self.inner.access_kind()
+    match self.inner.reflect() {
+      Reflect::Scalar => None,
+      Reflect::Struct(value) => (!value.field_names().is_empty()).then_some(AccessKind::Field),
+      Reflect::Sequence(_) => Some(AccessKind::Item),
+      Reflect::Map(value) => Some(value.access_kind()),
+      Reflect::Option(value) => value?.access_kind(),
+    }
   }
 
   /// Returns the contained value when this reference points to `Some(value)`.
   pub fn option_value(&self) -> Option<ObjectRef<'a>> {
-    self.inner.option_value()
+    match self.inner.reflect() {
+      Reflect::Option(value) => value,
+      _ => None,
+    }
   }
 
-  /// Returns an exposed field by name.
+  /// Returns an exposed field by name; see [`Meta::field_dyn`].
+  #[inline]
   pub fn field(&self, name: &str) -> Option<ObjectRef<'a>> {
     self.inner.field_dyn(name)
   }
 
   /// Returns the exposed field names in declaration order.
   pub fn field_names(&self) -> &'static [&'static str] {
-    self.inner.field_names()
+    match self.inner.reflect() {
+      Reflect::Struct(value) => value.field_names(),
+      Reflect::Option(Some(value)) => value.field_names(),
+      _ => &[],
+    }
   }
 
-  /// Returns an item at `index` for sequential access.
+  /// Returns an item at `index`; see [`Meta::item_dyn`].
+  #[inline]
   pub fn item(&self, index: usize) -> Option<ObjectRef<'a>> {
-    self.inner.item(index)
+    self.inner.item_dyn(index)
   }
 
   /// Returns the number of exposed structural items, when available.
+  ///
+  /// For maps, this is the number of keyed entries. An option has one item
+  /// when it holds a value.
   pub fn len(&self) -> Option<usize> {
-    self.inner.len()
+    match self.inner.reflect() {
+      Reflect::Struct(value) => value.len(),
+      Reflect::Sequence(value) => Some(value.len()),
+      Reflect::Map(value) => Some(value.len()),
+      Reflect::Option(value) => Some(usize::from(value.is_some())),
+      Reflect::Scalar => None,
+    }
   }
 
   /// Checks whether a value has no exposed structural items, when available.
   pub fn is_empty(&self) -> Option<bool> {
-    self.inner.is_empty()
+    self.len().map(|len| len == 0)
   }
 
-  /// Returns a value for `key` during map-like access.
+  /// Returns a value for a string-like `key`; see [`Meta::key_dyn`].
+  #[inline]
   pub fn key(&self, key: &str) -> Option<ObjectRef<'a>> {
-    self.inner.key(key)
+    self.inner.key_dyn(key)
   }
 
-  /// Returns the available keys for map-like access.
+  /// Returns the keys as strings for map-like access.
   pub fn keys(&self) -> Option<Vec<String>> {
-    self.inner.keys()
+    match self.inner.reflect() {
+      Reflect::Map(value) => value.keys(),
+      Reflect::Option(value) => value?.keys(),
+      _ => None,
+    }
   }
 
   /// Passes each map entry to `visitor` until it returns `false`.
@@ -315,7 +157,14 @@ impl<'a> ObjectRef<'a> {
   /// Returns `false` when the value has no map-like access. Stopping early
   /// still returns `true`.
   pub fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
-    self.inner.visit_map_entries(visitor)
+    match self.inner.reflect() {
+      Reflect::Map(value) => {
+        value.visit_entries(visitor);
+        true
+      }
+      Reflect::Option(Some(value)) => value.visit_map_entries(visitor),
+      _ => false,
+    }
   }
 
   /// Downcasts the reference to `T`.
@@ -355,6 +204,92 @@ impl PartialEq for ObjectRef<'_> {
   }
 }
 
+/// Generates read accessors that forward to [`ObjectRef`] through a private
+/// `view` method, so that every wrapper shares the implementation above.
+macro_rules! forward_object_reads {
+  ($ty:ty) => {
+    impl $ty {
+      /// Returns the Rust type name; see [`ObjectRef::type_name`].
+      pub fn type_name(&self) -> &'static str {
+        self.view().type_name()
+      }
+
+      /// Returns the type ID; see [`ObjectRef::id`].
+      pub fn id(&self) -> core::any::TypeId {
+        self.view().id()
+      }
+
+      /// Returns the structural kind; see [`ObjectRef::kind`].
+      pub fn kind(&self) -> ValueKind {
+        self.view().kind()
+      }
+
+      /// Returns the named or indexed access; see [`ObjectRef::access_kind`].
+      pub fn access_kind(&self) -> Option<AccessKind> {
+        self.view().access_kind()
+      }
+
+      /// Returns the contained value of an option; see
+      /// [`ObjectRef::option_value`].
+      pub fn option_value(&self) -> Option<ObjectRef<'_>> {
+        self.view().option_value()
+      }
+
+      /// Returns an exposed field by name; see [`ObjectRef::field`].
+      pub fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
+        self.view().field(name)
+      }
+
+      /// Returns the exposed field names; see [`ObjectRef::field_names`].
+      pub fn field_names(&self) -> &'static [&'static str] {
+        self.view().field_names()
+      }
+
+      /// Returns an item at `index`; see [`ObjectRef::item`].
+      pub fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
+        self.view().item(index)
+      }
+
+      /// Returns the number of exposed items; see [`ObjectRef::len`].
+      pub fn len(&self) -> Option<usize> {
+        self.view().len()
+      }
+
+      /// Checks whether there are no exposed items; see [`ObjectRef::is_empty`].
+      pub fn is_empty(&self) -> Option<bool> {
+        self.view().is_empty()
+      }
+
+      /// Returns a value for `key`; see [`ObjectRef::key`].
+      pub fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
+        self.view().key(key)
+      }
+
+      /// Returns the keys as strings; see [`ObjectRef::keys`].
+      pub fn keys(&self) -> Option<Vec<String>> {
+        self.view().keys()
+      }
+
+      /// Passes each map entry to `visitor`; see
+      /// [`ObjectRef::visit_map_entries`].
+      pub fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
+        self.view().visit_map_entries(visitor)
+      }
+
+      /// Traverses a nested field, item or key path; see
+      /// [`ObjectRef::field_path`].
+      pub fn field_path<'s, Q: FieldPathQuery<'s>>(&'s self, query: Q) -> Option<Q::Output> {
+        self.view().field_path(query)
+      }
+    }
+  };
+}
+
+forward_object_reads!(Object);
+forward_object_reads!(ObjectRefMut<'_>);
+forward_object_reads!(ObjectMut);
+forward_object_reads!(SendObject);
+
 /// Owned reflective value stored as a boxed [`Meta`] trait object.
 ///
 /// Access is read-only. Use [`ObjectMut`] for values that need mutation.
@@ -391,9 +326,8 @@ impl Object {
     Rc::from(self.0)
   }
 
-  /// Returns an exposed field by name; see [`Meta::field_dyn`].
-  pub fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
-    self.0.field_dyn(name)
+  fn view(&self) -> ObjectRef<'_> {
+    ObjectRef::new(self.0.as_ref())
   }
 }
 
@@ -442,6 +376,67 @@ impl PartialEq for Object {
   }
 }
 
+// Structural insertion and removal shared by `ObjectRefMut` and `ObjectMut`.
+// Each returns the rejected value in `Err` so that callers can choose their
+// error type.
+
+fn insert_key<'a>(
+  target: &'a mut dyn MetaMut,
+  key: &str,
+  value: Object,
+) -> Result<ObjectRefMut<'a>, Object> {
+  match target.reflect_mut() {
+    ReflectMut::Map(map) => map.insert_key(key, value),
+    ReflectMut::Option(option) => match option.value_mut() {
+      Some(inner) => insert_key(inner.inner, key, value),
+      None => Err(value),
+    },
+    _ => Err(value),
+  }
+}
+
+fn insert_item(
+  target: &mut dyn MetaMut,
+  index: usize,
+  value: Object,
+) -> Result<ObjectRefMut<'_>, Object> {
+  match target.reflect_mut() {
+    ReflectMut::Sequence(sequence) => sequence.insert_item(index, value),
+    ReflectMut::Option(option) if index == 0 => option.insert_value(value),
+    _ => Err(value),
+  }
+}
+
+fn push_item(target: &mut dyn MetaMut, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+  match target.reflect_mut() {
+    ReflectMut::Sequence(sequence) => sequence.push_item(value),
+    _ => Err(value),
+  }
+}
+
+fn remove_key(target: &mut dyn MetaMut, key: &str) -> Option<Object> {
+  match target.reflect_mut() {
+    ReflectMut::Map(value) => value.remove_key(key),
+    ReflectMut::Option(value) => remove_key(value.value_mut()?.inner, key),
+    _ => None,
+  }
+}
+
+fn remove_item(target: &mut dyn MetaMut, index: usize) -> Option<Object> {
+  match target.reflect_mut() {
+    ReflectMut::Sequence(value) => value.remove_item(index),
+    ReflectMut::Option(value) if index == 0 => value.take_value(),
+    _ => None,
+  }
+}
+
+fn move_item(target: &mut dyn MetaMut, from: usize, to: usize) -> Result<(), MoveItemError> {
+  match target.reflect_mut() {
+    ReflectMut::Sequence(value) => value.move_item(from, to),
+    _ => Err(MoveItemError::Unsupported),
+  }
+}
+
 /// Borrowed mutable reflective view of a [`MetaMut`] value.
 ///
 /// # Example
@@ -486,44 +481,8 @@ impl<'a> ObjectRefMut<'a> {
     self.inner.type_info()
   }
 
-  /// Returns the Rust type name of the referenced value.
-  pub fn type_name(&self) -> &'static str {
-    self.inner.type_name()
-  }
-
-  /// Returns the type ID of the referenced value.
-  pub fn id(&self) -> core::any::TypeId {
-    self.inner.id()
-  }
-
-  /// Determines the structural shape of the referenced value.
-  pub fn kind(&self) -> ValueKind {
-    self.inner.kind()
-  }
-
-  /// Returns the named or keyed access exposed by the referenced value, if any.
-  pub fn access_kind(&self) -> Option<AccessKind> {
-    self.inner.access_kind()
-  }
-
-  /// Returns the exposed field names in declaration order.
-  pub fn field_names(&self) -> &'static [&'static str] {
-    self.inner.field_names()
-  }
-
-  /// Returns the number of exposed structural items, when available.
-  pub fn len(&self) -> Option<usize> {
-    self.inner.len()
-  }
-
-  /// Checks whether a value has no exposed structural items, when available.
-  pub fn is_empty(&self) -> Option<bool> {
-    self.inner.is_empty()
-  }
-
-  /// Returns the available keys for map-like access.
-  pub fn keys(&self) -> Option<Vec<String>> {
-    self.inner.keys()
+  fn view(&self) -> ObjectRef<'_> {
+    ObjectRef::new(self.inner.as_meta())
   }
 
   /// Checks whether the referenced value has type `T`.
@@ -581,10 +540,7 @@ impl<'a> ObjectRefMut<'a> {
     key: &str,
     value: Object,
   ) -> Result<ObjectRefMut<'_>, ReflectiveError> {
-    self
-      .inner
-      .insert_key(key, value)
-      .map_err(|_| ReflectiveError::MutationTypeMismatch)
+    insert_key(self.inner, key, value).map_err(|_| ReflectiveError::MutationTypeMismatch)
   }
 
   /// Inserts a value at `index` for sequential access, returning a mutable
@@ -598,10 +554,7 @@ impl<'a> ObjectRefMut<'a> {
     index: usize,
     value: Object,
   ) -> Result<ObjectRefMut<'_>, ReflectiveError> {
-    self
-      .inner
-      .insert_item(index, value)
-      .map_err(|_| ReflectiveError::MutationTypeMismatch)
+    insert_item(self.inner, index, value).map_err(|_| ReflectiveError::MutationTypeMismatch)
   }
 
   /// Appends a value when the referenced value exposes sequential access,
@@ -610,10 +563,7 @@ impl<'a> ObjectRefMut<'a> {
   /// Returns [`ReflectiveError::MutationTypeMismatch`] when appending is
   /// unsupported or `value` has an incompatible concrete type.
   pub fn push_item(&mut self, value: Object) -> Result<ObjectRefMut<'_>, ReflectiveError> {
-    self
-      .inner
-      .push_item(value)
-      .map_err(|_| ReflectiveError::MutationTypeMismatch)
+    push_item(self.inner, value).map_err(|_| ReflectiveError::MutationTypeMismatch)
   }
 
   /// Removes the value for `key`.
@@ -621,10 +571,7 @@ impl<'a> ObjectRefMut<'a> {
   /// Returns [`ReflectiveError::PathNotFound`] when keyed removal is
   /// unsupported or `key` is not present.
   pub fn remove_key(&mut self, key: &str) -> Result<Object, ReflectiveError> {
-    self
-      .inner
-      .remove_key(key)
-      .ok_or(ReflectiveError::PathNotFound)
+    remove_key(self.inner, key).ok_or(ReflectiveError::PathNotFound)
   }
 
   /// Removes the item at `index`.
@@ -632,15 +579,12 @@ impl<'a> ObjectRefMut<'a> {
   /// Returns [`ReflectiveError::PathNotFound`] when indexed removal is
   /// unsupported or `index` is out of bounds.
   pub fn remove_item(&mut self, index: usize) -> Result<Object, ReflectiveError> {
-    self
-      .inner
-      .remove_item(index)
-      .ok_or(ReflectiveError::PathNotFound)
+    remove_item(self.inner, index).ok_or(ReflectiveError::PathNotFound)
   }
 
   /// Moves an item; see [`SequenceAccessMut::move_item`].
   pub fn move_item(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {
-    self.inner.move_item(from, to)
+    move_item(self.inner, from, to)
   }
 
   /// Overwrites the whole referenced value in place with `value`, consuming
@@ -816,9 +760,8 @@ impl ObjectMut {
     Object::new(MetaMutObject(self.0))
   }
 
-  /// Returns an exposed field by name; see [`Meta::field_dyn`].
-  pub fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
-    self.0.field_dyn(name)
+  fn view(&self) -> ObjectRef<'_> {
+    ObjectRef::new(self.0.as_meta())
   }
 
   /// Returns a mutable field by name; see [`MetaMut::field_mut_dyn`].
@@ -845,6 +788,67 @@ impl ObjectMut {
   /// [`MetaMut::replace_dyn`].
   pub fn replace(&mut self, value: Object) -> Result<Object, Object> {
     self.0.replace_dyn(value)
+  }
+
+  /// Downcasts the value to `T`.
+  pub fn to_mut<T: 'static>(&mut self) -> Option<&mut T> {
+    self.0.as_any_mut().downcast_mut::<T>()
+  }
+
+  /// Traverses a nested field, item or key path; see [`FieldPathQueryMut`].
+  pub fn field_path_mut<'r, Q: FieldPathQueryMut<'r>>(
+    &'r mut self,
+    query: Q,
+  ) -> Result<Q::Output, ReflectiveError> {
+    query.resolve(ObjectRefMut::new(self.0.as_mut()))
+  }
+
+  /// Inserts `value` under `key`; see [`MapAccessMut::insert_key`].
+  ///
+  /// Options forward the insertion to their contained value.
+  pub fn insert_key(&mut self, key: &str, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+    insert_key(self.0.as_mut(), key, value)
+  }
+
+  /// Inserts `value` at `index`; see [`SequenceAccessMut::insert_item`].
+  ///
+  /// An option without a value accepts an insertion at index 0.
+  pub fn insert_item(&mut self, index: usize, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+    insert_item(self.0.as_mut(), index, value)
+  }
+
+  /// Appends `value`; see [`SequenceAccessMut::push_item`].
+  pub fn push_item(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+    push_item(self.0.as_mut(), value)
+  }
+
+  /// Removes and returns the value stored under `key`.
+  ///
+  /// Options forward the removal to their contained value.
+  pub fn remove_key(&mut self, key: &str) -> Option<Object> {
+    remove_key(self.0.as_mut(), key)
+  }
+
+  /// Removes and returns the item at `index`.
+  ///
+  /// An option gives up its contained value at index 0.
+  pub fn remove_item(&mut self, index: usize) -> Option<Object> {
+    remove_item(self.0.as_mut(), index)
+  }
+
+  /// Moves an item; see [`SequenceAccessMut::move_item`].
+  pub fn move_item(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {
+    move_item(self.0.as_mut(), from, to)
+  }
+
+  /// Applies an ordered list of [`PatchOperation`] values. A failed operation
+  /// does not undo earlier ones. Use [`MutationBatch`] for transactional
+  /// application.
+  pub fn apply<'p, I>(&mut self, operations: I) -> Result<(), ApplyError<'p>>
+  where
+    I: IntoIterator<Item = PatchOperation<'p>>,
+  {
+    apply_patch(self.0.as_mut(), operations)
   }
 }
 
@@ -980,9 +984,8 @@ impl SendObject {
     SendMeta::into_object(self.0)
   }
 
-  /// Returns an exposed field by name; see [`Meta::field_dyn`].
-  pub fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
-    self.0.field_dyn(name)
+  fn view(&self) -> ObjectRef<'_> {
+    ObjectRef::new(self.0.as_meta())
   }
 }
 

@@ -1,4 +1,4 @@
-use crate::patch::{OwnedPatchOperation, move_index_out_of_bounds};
+use crate::patch::{OwnedPatchOperation, kind_of, move_index_out_of_bounds};
 use crate::path::OwnedPath;
 use crate::{
   MetaMut, MoveItemError, Object, ObjectRef, PatchOperation, PatchOperationKind, PathSegment,
@@ -508,7 +508,7 @@ fn apply_staged_operation(
       let target = resolve(target, &path, operation_kind)?;
       let ReflectMut::Map(map) = target.reflect_mut() else {
         return Err(container_error(
-          target.kind(),
+          kind_of(target),
           &path,
           operation_kind,
           ValueKind::Map,
@@ -539,7 +539,7 @@ fn apply_staged_operation(
       let target = resolve(target, &path, operation_kind)?;
       let ReflectMut::Map(map) = target.reflect_mut() else {
         return Err(container_error(
-          target.kind(),
+          kind_of(target),
           &path,
           operation_kind,
           ValueKind::Map,
@@ -562,7 +562,7 @@ fn apply_staged_operation(
       let target = resolve(target, &path, operation_kind)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target.kind(),
+          kind_of(target),
           &path,
           operation_kind,
           ValueKind::Sequence,
@@ -578,7 +578,7 @@ fn apply_staged_operation(
       let target = resolve(target, &path, operation_kind)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target.kind(),
+          kind_of(target),
           &path,
           operation_kind,
           ValueKind::Sequence,
@@ -595,7 +595,7 @@ fn apply_staged_operation(
       let target = resolve(target, &path, operation_kind)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target.kind(),
+          kind_of(target),
           &path,
           operation_kind,
           ValueKind::Sequence,
@@ -615,7 +615,7 @@ fn apply_staged_operation(
       let target = resolve(target, &path, operation_kind)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target.kind(),
+          kind_of(target),
           &path,
           operation_kind,
           ValueKind::Sequence,

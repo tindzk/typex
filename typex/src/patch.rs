@@ -504,6 +504,15 @@ fn resolve_target<'a, 'p>(
   }
 }
 
+/// Returns the structural kind of `target` for an error report.
+///
+/// Kept out of line so that the error paths add no code to the successful
+/// path of each operation.
+#[inline(never)]
+pub(crate) fn kind_of(target: &dyn MetaMut) -> ValueKind {
+  target.reflect().kind()
+}
+
 /// Reports why a value exposes no mutable shape for an operation that needs
 /// `expected`.
 ///
@@ -564,7 +573,7 @@ fn apply_operation<'p>(
       let (target, path) = resolve_target(root, path, operation)?;
       let ReflectMut::Map(map) = target.reflect_mut() else {
         return Err(container_error(
-          target.kind(),
+          kind_of(target),
           path,
           operation,
           ValueKind::Map,
@@ -577,7 +586,7 @@ fn apply_operation<'p>(
       let (target, path) = resolve_target(root, path, operation)?;
       let ReflectMut::Map(map) = target.reflect_mut() else {
         return Err(container_error(
-          target.kind(),
+          kind_of(target),
           path,
           operation,
           ValueKind::Map,
@@ -590,7 +599,7 @@ fn apply_operation<'p>(
       let (target, path) = resolve_target(root, path, operation)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target.kind(),
+          kind_of(target),
           path,
           operation,
           ValueKind::Sequence,
@@ -603,7 +612,7 @@ fn apply_operation<'p>(
       let (target, path) = resolve_target(root, path, operation)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target.kind(),
+          kind_of(target),
           path,
           operation,
           ValueKind::Sequence,
@@ -616,7 +625,7 @@ fn apply_operation<'p>(
       let (target, path) = resolve_target(root, path, operation)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target.kind(),
+          kind_of(target),
           path,
           operation,
           ValueKind::Sequence,
@@ -629,7 +638,7 @@ fn apply_operation<'p>(
       let (target, path) = resolve_target(root, path, operation)?;
       let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
         return Err(container_error(
-          target.kind(),
+          kind_of(target),
           path,
           operation,
           ValueKind::Sequence,

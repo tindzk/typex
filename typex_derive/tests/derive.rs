@@ -369,8 +369,7 @@ fn derive_meta_exposes_struct_fields() {
   let labels = ObjectRef::new(&payload).field("labels").unwrap();
   assert_eq!(labels.len(), Some(1));
   assert_eq!(labels.item(0).unwrap().field_names(), &["name"]);
-  let labels: &dyn Meta = &payload.labels;
-  assert_eq!(labels.is_empty(), Some(false));
+  assert_eq!(ObjectRef::new(&payload.labels).is_empty(), Some(false));
   assert_eq!(
     ObjectRef::new(&payload)
       .field("queued_labels")

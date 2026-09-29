@@ -295,7 +295,7 @@ assert_eq!(object.to::<u8>(), Ok(42));
 ### Equality
 
 `Meta::eq_dyn()` compares two `Meta` values and is also available as `==` on
-`ObjectRef`, `ObjectRefMut` and `&dyn Meta`. Mismatched concrete types are
+`Object`, `ObjectRef`, `ObjectRefMut` and `&dyn Meta`. Mismatched concrete types are
 never equal. Structural values compare recursively through exposed fields, map
 entries or indexed items. Derived types can opt into their own `PartialEq`
 implementation with `#[typex(partial_eq)]`; see

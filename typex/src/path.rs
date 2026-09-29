@@ -530,8 +530,8 @@ impl<'a, 'k, Root, Value> IntoIterator for &'a TypedPath<'k, Root, Value> {
 /// Path accepted by `field_path`. Its kind determines the return type.
 ///
 /// This trait is not normally used directly. Pass one of the following to
-/// [`ObjectRef::field_path`] or to `field_path` on an [`Object`] or a
-/// [`dyn Meta`](crate::Meta) value:
+/// [`ObjectRef::field_path`] or to `field_path` on another wrapper such as
+/// [`Object`]:
 ///
 /// | Path | Returns |
 /// |---|---|

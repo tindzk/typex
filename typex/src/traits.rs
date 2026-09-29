@@ -199,8 +199,8 @@ fn structural_eq<T: Meta + ?Sized>(this: &T, other: &dyn Meta) -> bool {
 /// Implement or derive this trait to expose a type through read-only
 /// reflection. Implementations are provided for common scalar and collection
 /// types. [`Meta::reflect`] exposes the structure through the access traits in
-/// [`Reflect`], which callers reach through [`Object`], [`ObjectRef`] or
-/// `&dyn Meta` rather than by importing them.
+/// [`Reflect`], which callers reach through [`Object`] or [`ObjectRef`] rather
+/// than by importing them.
 ///
 /// For mutable structural access, implement or derive [`MetaMut`], the mutable
 /// counterpart to [`Meta`].
@@ -315,9 +315,9 @@ pub trait Meta: Any {
 ///
 /// [`MetaMut::reflect_mut`] exposes mutable structural navigation, insertion
 /// and removal through the access traits in [`ReflectMut`]. Callers reach
-/// them through [`ObjectMut`], [`ObjectRefMut`] or `&mut dyn MetaMut`, where
-/// unsupported navigation returns `None` and unsupported operations return
-/// the supplied [`Object`] in `Err`.
+/// them through [`ObjectMut`], which returns `None` for unsupported navigation
+/// and the supplied [`Object`] in `Err` for unsupported operations, or through
+/// [`ObjectRefMut`], which returns a [`ReflectiveError`].
 ///
 /// Mutable field, item and key access only reaches existing entries. To add an
 /// entry, insert or append a value, which must have the expected concrete type.
@@ -436,94 +436,6 @@ pub trait MetaMut: Meta {
 
   /// Returns the value as a mutable borrowed `Any` trait object.
   fn as_any_mut(&mut self) -> &mut dyn Any;
-}
-
-impl dyn MetaMut + '_ {
-  /// Downcasts the mutable reference to `T`.
-  pub fn to_mut<T: 'static>(&mut self) -> Option<&mut T> {
-    self.as_any_mut().downcast_mut::<T>()
-  }
-
-  /// Traverses a nested field, item or key path; see [`FieldPathQueryMut`].
-  pub fn field_path_mut<'r, Q: FieldPathQueryMut<'r>>(
-    &'r mut self,
-    query: Q,
-  ) -> Result<Q::Output, ReflectiveError> {
-    query.resolve(ObjectRefMut::new(self))
-  }
-
-  /// Inserts `value` under `key`; see [`MapAccessMut::insert_key`].
-  ///
-  /// Options forward the insertion to their contained value.
-  pub fn insert_key(&mut self, key: &str, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-    match self.reflect_mut() {
-      ReflectMut::Map(map) => map.insert_key(key, value),
-      ReflectMut::Option(option) => match option.value_mut() {
-        Some(inner) => inner.inner.insert_key(key, value),
-        None => Err(value),
-      },
-      _ => Err(value),
-    }
-  }
-
-  /// Inserts `value` at `index`; see [`SequenceAccessMut::insert_item`].
-  ///
-  /// An option without a value accepts an insertion at index 0.
-  pub fn insert_item(&mut self, index: usize, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-    match self.reflect_mut() {
-      ReflectMut::Sequence(sequence) => sequence.insert_item(index, value),
-      ReflectMut::Option(option) if index == 0 => option.insert_value(value),
-      _ => Err(value),
-    }
-  }
-
-  /// Appends `value`; see [`SequenceAccessMut::push_item`].
-  pub fn push_item(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-    match self.reflect_mut() {
-      ReflectMut::Sequence(sequence) => sequence.push_item(value),
-      _ => Err(value),
-    }
-  }
-
-  /// Removes and returns the value stored under `key`.
-  ///
-  /// Options forward the removal to their contained value.
-  pub fn remove_key(&mut self, key: &str) -> Option<Object> {
-    match self.reflect_mut() {
-      ReflectMut::Map(value) => value.remove_key(key),
-      ReflectMut::Option(value) => value.value_mut()?.inner.remove_key(key),
-      _ => None,
-    }
-  }
-
-  /// Removes and returns the item at `index`.
-  ///
-  /// An option gives up its contained value at index 0.
-  pub fn remove_item(&mut self, index: usize) -> Option<Object> {
-    match self.reflect_mut() {
-      ReflectMut::Sequence(value) => value.remove_item(index),
-      ReflectMut::Option(value) if index == 0 => value.take_value(),
-      _ => None,
-    }
-  }
-
-  /// Moves an item; see [`SequenceAccessMut::move_item`].
-  pub fn move_item(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {
-    match self.reflect_mut() {
-      ReflectMut::Sequence(value) => value.move_item(from, to),
-      _ => Err(MoveItemError::Unsupported),
-    }
-  }
-
-  /// Applies an ordered list of [`PatchOperation`] values. A failed operation
-  /// does not undo earlier ones. Use [`MutationBatch`] for transactional
-  /// application.
-  pub fn apply<'p, I>(&mut self, operations: I) -> Result<(), ApplyError<'p>>
-  where
-    I: IntoIterator<Item = PatchOperation<'p>>,
-  {
-    apply_patch(self, operations)
-  }
 }
 
 /// Provides shared method bodies for concrete [`MetaMut`] implementations.
