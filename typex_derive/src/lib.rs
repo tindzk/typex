@@ -72,26 +72,29 @@ fn expand_meta(input: &DeriveInput) -> syn::Result<TokenStream2> {
     }
   });
 
-  let (body, path_constants, mut generics) = if options.opaque {
-    let body = quote! {
-      fn kind(&self) -> ::typex::ValueKind {
-        ::typex::ValueKind::Scalar
-      }
-    };
-    (body, quote! {}, input.generics.clone())
+  let (shape, access, path_constants, mut generics) = if options.opaque {
+    let shape = quote! { ::typex::Reflect::Scalar };
+    (shape, None, quote! {}, input.generics.clone())
   } else {
-    let body = match &input.data {
+    let access = match &input.data {
       Data::Struct(data) => struct_meta(data),
       Data::Enum(data) => enum_meta(data),
       Data::Union(_) => unreachable!("unions are rejected above"),
     };
+    let eq = match &input.data {
+      Data::Struct(data) => struct_eq(data),
+      Data::Enum(data) => enum_eq(data),
+      Data::Union(_) => unreachable!("unions are rejected above"),
+    };
+    let access = (access, eq);
     let constants = match &input.data {
       Data::Struct(data) => struct_path_constants(input, data),
       Data::Enum(data) => enum_path_constants(input, data),
       Data::Union(_) => unreachable!("unions are rejected above"),
     };
     let generics = bounded_generics(input, quote!(::typex::Meta));
-    (body, constants, generics)
+    let shape = quote! { ::typex::Reflect::Struct(self) };
+    (shape, Some(access), constants, generics)
   };
 
   let where_clause = generics.make_where_clause();
@@ -104,11 +107,24 @@ fn expand_meta(input: &DeriveInput) -> syn::Result<TokenStream2> {
 
   let name = &input.ident;
   let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+  // `partial_eq` takes precedence over the generated structural comparison.
+  let (access, structural_eq_fn) = access.unzip();
+  let eq_fn = partial_eq_fn.or(structural_eq_fn);
+  let access_impl = access.map(|access| {
+    quote! {
+      impl #impl_generics ::typex::StructAccess for #name #ty_generics #where_clause {
+        #access
+      }
+    }
+  });
 
   Ok(quote! {
     impl #impl_generics ::typex::Meta for #name #ty_generics #where_clause {
-      #body
-      #partial_eq_fn
+      fn reflect(&self) -> ::typex::Reflect<'_> {
+        #shape
+      }
+
+      #eq_fn
 
       fn into_any(
         self: ::typex::__private::Box<Self>,
@@ -121,6 +137,8 @@ fn expand_meta(input: &DeriveInput) -> syn::Result<TokenStream2> {
       }
     }
 
+    #access_impl
+
     #path_constants
   })
 }
@@ -129,15 +147,21 @@ fn expand_meta_mut(input: &DeriveInput) -> syn::Result<TokenStream2> {
   let options = typex_options(&input.attrs)?;
   reject_union(input, "MetaMut")?;
 
-  let (body, mut generics) = if options.opaque {
-    (quote! {}, input.generics.clone())
+  let (shape, access, mut generics) = if options.opaque {
+    let shape = quote! { ::typex::ReflectMut::Opaque };
+    (shape, None, input.generics.clone())
   } else {
-    let body = match &input.data {
+    let access = match &input.data {
       Data::Struct(data) => struct_meta_mut(data),
       Data::Enum(data) => enum_meta_mut(data),
       Data::Union(_) => unreachable!("unions are rejected above"),
     };
-    (body, bounded_generics(input, quote!(::typex::MetaMut)))
+    let shape = quote! { ::typex::ReflectMut::Struct(self) };
+    (
+      shape,
+      Some(access),
+      bounded_generics(input, quote!(::typex::MetaMut)),
+    )
   };
   generics
     .make_where_clause()
@@ -146,16 +170,25 @@ fn expand_meta_mut(input: &DeriveInput) -> syn::Result<TokenStream2> {
 
   let name = &input.ident;
   let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+  let access_impl = access.map(|access| {
+    quote! {
+      impl #impl_generics ::typex::StructAccessMut for #name #ty_generics #where_clause {
+        #access
+      }
+    }
+  });
 
   Ok(quote! {
     impl #impl_generics ::typex::MetaMut for #name #ty_generics #where_clause {
-      #body
+      fn reflect_mut(&mut self) -> ::typex::ReflectMut<'_> {
+        #shape
+      }
 
-      fn replace(
+      fn replace_dyn(
         &mut self,
         __typex_value: ::typex::Object,
       ) -> ::core::result::Result<::typex::Object, ::typex::Object> {
-        if !::typex::Meta::as_any(&*__typex_value).is::<Self>() {
+        if !::typex::ObjectOps::is::<Self>(&__typex_value) {
           return ::core::result::Result::Err(__typex_value);
         }
 
@@ -168,11 +201,11 @@ fn expand_meta_mut(input: &DeriveInput) -> syn::Result<TokenStream2> {
         )))
       }
 
-      fn set(
+      fn set_dyn(
         &mut self,
         __typex_value: ::typex::Object,
       ) -> ::core::result::Result<(), ::typex::Object> {
-        if !::typex::Meta::as_any(&*__typex_value).is::<Self>() {
+        if !::typex::ObjectOps::is::<Self>(&__typex_value) {
           return ::core::result::Result::Err(__typex_value);
         }
 
@@ -190,6 +223,8 @@ fn expand_meta_mut(input: &DeriveInput) -> syn::Result<TokenStream2> {
         self
       }
     }
+
+    #access_impl
   })
 }
 
@@ -374,8 +409,18 @@ fn binding(index: usize) -> Ident {
   format_ident!("__typex_field_{}", index)
 }
 
+fn other_binding(index: usize) -> Ident {
+  format_ident!("__typex_other_{}", index)
+}
+
 /// Returns a pattern that binds every field of `variant` to `__typex_field_N`.
 fn variant_bindings(variant: &Variant) -> TokenStream2 {
+  variant_pattern(variant, binding)
+}
+
+/// Returns a pattern that binds every field of `variant` to the name that
+/// `binding` returns for its index.
+fn variant_pattern(variant: &Variant, binding: fn(usize) -> Ident) -> TokenStream2 {
   let ident = &variant.ident;
   match &variant.fields {
     Fields::Named(fields) => {
@@ -392,6 +437,63 @@ fn variant_bindings(variant: &Variant) -> TokenStream2 {
     }
     Fields::Unit => quote! { Self::#ident },
   }
+}
+
+/// Generates an `eq_dyn` that evaluates `body` with `__typex_other`
+/// downcast to `Self`.
+///
+/// The result matches the default structural comparison, which compares the
+/// same exposed fields by name, without dispatching through the access traits.
+fn eq_dyn_fn(body: TokenStream2) -> TokenStream2 {
+  quote! {
+    fn eq_dyn(&self, __typex_other: &dyn ::typex::Meta) -> ::core::primitive::bool {
+      match ::typex::Meta::as_any(__typex_other).downcast_ref::<Self>() {
+        ::core::option::Option::Some(__typex_other) => #body,
+        ::core::option::Option::None => false,
+      }
+    }
+  }
+}
+
+/// Returns `true` followed by an `eq_dyn` comparison for each pair of fields.
+fn fields_eq(pairs: impl Iterator<Item = (TokenStream2, TokenStream2)>) -> TokenStream2 {
+  let comparisons = pairs.map(|(left, right)| {
+    quote! { && ::typex::Meta::eq_dyn(#left, #right) }
+  });
+  quote! { true #(#comparisons)* }
+}
+
+fn struct_eq(data: &DataStruct) -> TokenStream2 {
+  let body = fields_eq(data.fields.iter().enumerate().map(|(index, field)| {
+    let member = field_member(index, field.ident.as_ref());
+    (quote! { &self.#member }, quote! { &__typex_other.#member })
+  }));
+  eq_dyn_fn(body)
+}
+
+fn enum_eq(data: &DataEnum) -> TokenStream2 {
+  let arms = data.variants.iter().map(|variant| {
+    let pattern = variant_pattern(variant, binding);
+    let other_pattern = variant_pattern(variant, other_binding);
+    let body = fields_eq((0..variant.fields.len()).map(|index| {
+      let (left, right) = (binding(index), other_binding(index));
+      (quote! { #left }, quote! { #right })
+    }));
+    quote! { (#pattern, #other_pattern) => #body }
+  });
+  // A single variant always matches, so a fallback arm would be unreachable.
+  let fallback = (data.variants.len() > 1).then(|| quote! { _ => false, });
+  let body = if data.variants.is_empty() {
+    quote! { match *self {} }
+  } else {
+    quote! {
+      match (self, __typex_other) {
+        #(#arms,)*
+        #fallback
+      }
+    }
+  };
+  eq_dyn_fn(body)
 }
 
 fn variant_wildcard(variant: &Variant) -> TokenStream2 {
@@ -490,20 +592,12 @@ fn struct_meta(data: &DataStruct) -> TokenStream2 {
     .map(|(index, field)| field_member(index, field.ident.as_ref()))
     .collect::<Vec<_>>();
 
-  let access_kind_fn = (!data.fields.is_empty()).then(|| {
-    quote! {
-      fn access_kind(&self) -> ::core::option::Option<::typex::AccessKind> {
-        ::core::option::Option::Some(::typex::AccessKind::Field)
-      }
-    }
-  });
-
   let (item_arms, len) = match &data.fields {
     Fields::Unnamed(fields) => {
       let arms = members.iter().enumerate().map(|(index, member)| {
         quote! {
           #index => ::core::option::Option::Some(
-            ::typex::ObjectRef::new(&self.#member as &dyn ::typex::Meta),
+            ::typex::ObjectRef::new(&self.#member),
           )
         }
       });
@@ -517,19 +611,13 @@ fn struct_meta(data: &DataStruct) -> TokenStream2 {
   };
 
   quote! {
-    fn kind(&self) -> ::typex::ValueKind {
-      ::typex::ValueKind::Struct
-    }
-
-    #access_kind_fn
-
     fn field(
       &self,
       __typex_name: &::core::primitive::str,
     ) -> ::core::option::Option<::typex::ObjectRef<'_>> {
       match __typex_name {
         #(#keys => ::core::option::Option::Some(
-          ::typex::ObjectRef::new(&self.#members as &dyn ::typex::Meta),
+          ::typex::ObjectRef::new(&self.#members),
         ),)*
         _ => ::core::option::Option::None,
       }
@@ -575,7 +663,7 @@ fn struct_meta_mut(data: &DataStruct) -> TokenStream2 {
       .map(|(index, member)| {
         quote! {
           #index => ::core::option::Option::Some(
-            ::typex::ObjectRefMut::new(&mut self.#member as &mut dyn ::typex::MetaMut),
+            ::typex::ObjectRefMut::new(&mut self.#member),
           )
         }
       })
@@ -590,7 +678,7 @@ fn struct_meta_mut(data: &DataStruct) -> TokenStream2 {
     ) -> ::core::option::Option<::typex::ObjectRefMut<'_>> {
       match __typex_name {
         #(#keys => ::core::option::Option::Some(
-          ::typex::ObjectRefMut::new(&mut self.#members as &mut dyn ::typex::MetaMut),
+          ::typex::ObjectRefMut::new(&mut self.#members),
         ),)*
         _ => ::core::option::Option::None,
       }
@@ -634,10 +722,10 @@ fn enum_meta(data: &DataEnum) -> TokenStream2 {
       quote! {
         #pattern => match __typex_name {
           #variant_name => ::core::option::Option::Some(
-            ::typex::ObjectRef::new(self as &dyn ::typex::Meta),
+            ::typex::ObjectRef::new(self),
           ),
           #(#keys => ::core::option::Option::Some(
-            ::typex::ObjectRef::new(#bindings as &dyn ::typex::Meta),
+            ::typex::ObjectRef::new(#bindings),
           ),)*
           _ => ::core::option::Option::None,
         }
@@ -671,7 +759,7 @@ fn enum_meta(data: &DataEnum) -> TokenStream2 {
         quote! {
           #pattern => match __typex_index {
             #(#indices => ::core::option::Option::Some(
-              ::typex::ObjectRef::new(#bindings as &dyn ::typex::Meta),
+              ::typex::ObjectRef::new(#bindings),
             ),)*
             _ => ::core::option::Option::None,
           }
@@ -705,14 +793,6 @@ fn enum_meta(data: &DataEnum) -> TokenStream2 {
   let len_body = match_self(data, len_arms);
 
   quote! {
-    fn kind(&self) -> ::typex::ValueKind {
-      ::typex::ValueKind::Struct
-    }
-
-    fn access_kind(&self) -> ::core::option::Option<::typex::AccessKind> {
-      ::core::option::Option::Some(::typex::AccessKind::Field)
-    }
-
     fn field(
       &self,
       __typex_name: &::core::primitive::str,
@@ -762,7 +842,7 @@ fn enum_meta_mut(data: &DataEnum) -> TokenStream2 {
       quote! {
         #pattern => match __typex_name {
           #(#keys => ::core::option::Option::Some(
-            ::typex::ObjectRefMut::new(#bindings as &mut dyn ::typex::MetaMut),
+            ::typex::ObjectRefMut::new(#bindings),
           ),)*
           _ => ::core::option::Option::None,
         }
@@ -781,7 +861,7 @@ fn enum_meta_mut(data: &DataEnum) -> TokenStream2 {
         quote! {
           #pattern => match __typex_index {
             #(#indices => ::core::option::Option::Some(
-              ::typex::ObjectRefMut::new(#bindings as &mut dyn ::typex::MetaMut),
+              ::typex::ObjectRefMut::new(#bindings),
             ),)*
             _ => ::core::option::Option::None,
           }
@@ -805,7 +885,7 @@ fn enum_meta_mut(data: &DataEnum) -> TokenStream2 {
       let __typex_variant: &'static ::core::primitive::str = #variant_name_body;
       if __typex_name == __typex_variant {
         return ::core::option::Option::Some(
-          ::typex::ObjectRefMut::new(self as &mut dyn ::typex::MetaMut),
+          ::typex::ObjectRefMut::new(self),
         );
       }
       #field_match

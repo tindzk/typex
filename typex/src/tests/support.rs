@@ -5,15 +5,12 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::any::Any;
 
-pub(super) fn move_item_by_remove_insert<T: MetaMut + ?Sized>(
-  value: &mut T,
+pub(super) fn move_item_by_remove_insert(
+  value: &mut dyn SequenceAccessMut,
   from: usize,
   to: usize,
 ) -> Result<(), MoveItemError> {
-  if value.kind() != ValueKind::Sequence {
-    return Err(MoveItemError::Unsupported);
-  }
-  let len = value.len().ok_or(MoveItemError::Unsupported)?;
+  let len = value.len();
   if from >= len || to > len {
     return Err(MoveItemError::IndexOutOfBounds);
   }
@@ -43,8 +40,8 @@ impl Meta for LyingType {
     TypeInfo::of::<Number>()
   }
 
-  fn kind(&self) -> ValueKind {
-    ValueKind::Scalar
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Scalar
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -57,8 +54,8 @@ impl Meta for LyingType {
 }
 
 impl Meta for Number {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Scalar
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Scalar
   }
 
   fn eq_dyn(&self, other: &dyn Meta) -> bool {
@@ -77,6 +74,10 @@ impl Meta for Number {
 impl MetaMut for Number {
   set_body!();
 
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Opaque
+  }
+
   fn as_any_mut(&mut self) -> &mut dyn Any {
     self
   }
@@ -86,8 +87,8 @@ impl MetaMut for Number {
 pub(super) struct Text(pub(super) &'static str);
 
 impl Meta for Text {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Scalar
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Scalar
   }
 
   fn eq_dyn(&self, other: &dyn Meta) -> bool {
@@ -106,6 +107,10 @@ impl Meta for Text {
 impl MetaMut for Text {
   set_body!();
 
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Opaque
+  }
+
   fn as_any_mut(&mut self) -> &mut dyn Any {
     self
   }
@@ -121,24 +126,8 @@ pub(super) struct Pair {
 }
 
 impl Meta for Pair {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Struct
-  }
-
-  fn access_kind(&self) -> Option<AccessKind> {
-    Some(AccessKind::Field)
-  }
-
-  fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
-    match name {
-      "count" => Some(ObjectRef::new(&self.count as &dyn Meta)),
-      "label" => Some(ObjectRef::new(&self.label as &dyn Meta)),
-      _ => None,
-    }
-  }
-
-  fn field_names(&self) -> &'static [&'static str] {
-    &["count", "label"]
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Struct(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -150,15 +139,25 @@ impl Meta for Pair {
   }
 }
 
+impl StructAccess for Pair {
+  fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
+    match name {
+      "count" => Some(ObjectRef::new(&self.count)),
+      "label" => Some(ObjectRef::new(&self.label)),
+      _ => None,
+    }
+  }
+
+  fn field_names(&self) -> &'static [&'static str] {
+    &["count", "label"]
+  }
+}
+
 impl MetaMut for Pair {
   set_body!();
 
-  fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
-    match name {
-      "count" => Some(ObjectRefMut::new(&mut self.count as &mut dyn MetaMut)),
-      "label" => Some(ObjectRefMut::new(&mut self.label as &mut dyn MetaMut)),
-      _ => None,
-    }
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Struct(self)
   }
 
   fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -166,10 +165,20 @@ impl MetaMut for Pair {
   }
 }
 
-/// Indexed collection keyed by a unique identifier, standing in for a
-/// structural derive that reports [`AccessKind::ItemKey`]. Keeps
-/// insertion order in `items` for index access while `by_key` maps each key
-/// to its position for lookup without a linear scan.
+impl StructAccessMut for Pair {
+  fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
+    match name {
+      "count" => Some(ObjectRefMut::new(&mut self.count)),
+      "label" => Some(ObjectRefMut::new(&mut self.label)),
+      _ => None,
+    }
+  }
+}
+
+/// Indexed collection keyed by a unique identifier, standing in for a map
+/// that reports [`AccessKind::ItemKey`]. Keeps insertion order in `items` for
+/// index access while `by_key` maps each key to its position for lookup
+/// without a linear scan.
 #[derive(Debug, PartialEq)]
 pub(super) struct IndexMap {
   pub(super) items: Vec<(String, Number)>,
@@ -188,32 +197,8 @@ impl IndexMap {
 }
 
 impl Meta for IndexMap {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Sequence
-  }
-
-  fn access_kind(&self) -> Option<AccessKind> {
-    Some(AccessKind::ItemKey)
-  }
-
-  fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-    self
-      .items
-      .get(index)
-      .map(|(_, value)| ObjectRef::new(value as &dyn Meta))
-  }
-
-  fn len(&self) -> Option<usize> {
-    Some(self.items.len())
-  }
-
-  fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
-    let &index = self.by_key.get(key)?;
-    Some(ObjectRef::new(&self.items[index].1 as &dyn Meta))
-  }
-
-  fn keys(&self) -> Option<Vec<String>> {
-    Some(self.items.iter().map(|(id, _)| id.clone()).collect())
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Map(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -222,6 +207,40 @@ impl Meta for IndexMap {
 
   fn as_any(&self) -> &dyn Any {
     self
+  }
+}
+
+impl MapAccess for IndexMap {
+  fn len(&self) -> usize {
+    self.items.len()
+  }
+
+  fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
+    let &index = self.by_key.get(key)?;
+    Some(ObjectRef::new(&self.items[index].1))
+  }
+
+  fn keys(&self) -> Option<Vec<String>> {
+    Some(self.items.iter().map(|(id, _)| id.clone()).collect())
+  }
+
+  fn visit_entries(&self, visitor: &mut MapEntryVisitor<'_>) {
+    for (key, value) in &self.items {
+      if !visitor(AnyRef::new(key), ObjectRef::new(value)) {
+        break;
+      }
+    }
+  }
+
+  fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
+    self
+      .items
+      .get(index)
+      .map(|(_, value)| ObjectRef::new(value))
+  }
+
+  fn access_kind(&self) -> AccessKind {
+    AccessKind::ItemKey
   }
 }
 
@@ -231,12 +250,8 @@ pub(super) struct PushOnly {
 }
 
 impl Meta for PushOnly {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Sequence
-  }
-
-  fn len(&self) -> Option<usize> {
-    Some(self.values.len())
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Sequence(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -248,8 +263,32 @@ impl Meta for PushOnly {
   }
 }
 
+impl SequenceAccess for PushOnly {
+  fn len(&self) -> usize {
+    self.values.len()
+  }
+
+  fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
+    self.values.get(index).map(|value| ObjectRef::new(value))
+  }
+}
+
 impl MetaMut for PushOnly {
   set_body!();
+
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Sequence(self)
+  }
+
+  fn as_any_mut(&mut self) -> &mut dyn Any {
+    self
+  }
+}
+
+impl SequenceAccessMut for PushOnly {
+  fn item_mut(&mut self, _index: usize) -> Option<ObjectRefMut<'_>> {
+    None
+  }
 
   fn push_item(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
     if !value.is::<u8>() {
@@ -259,10 +298,6 @@ impl MetaMut for PushOnly {
     let value = *value.into_inner().into_any().downcast::<u8>().unwrap();
     self.values.push(value);
     Ok(ObjectRefMut::new(self.values.last_mut().unwrap()))
-  }
-
-  fn as_any_mut(&mut self) -> &mut dyn Any {
-    self
   }
 }
 
@@ -275,26 +310,8 @@ pub(super) struct PatchConfig {
 }
 
 impl Meta for PatchConfig {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Struct
-  }
-
-  fn access_kind(&self) -> Option<AccessKind> {
-    Some(AccessKind::Field)
-  }
-
-  fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
-    match name {
-      "enabled" => Some(ObjectRef::new(&self.enabled as &dyn Meta)),
-      "labels" => Some(ObjectRef::new(&self.labels as &dyn Meta)),
-      "profile" => Some(ObjectRef::new(&self.profile as &dyn Meta)),
-      "items" => Some(ObjectRef::new(&self.items as &dyn Meta)),
-      _ => None,
-    }
-  }
-
-  fn field_names(&self) -> &'static [&'static str] {
-    &["enabled", "labels", "profile", "items"]
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Struct(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -306,21 +323,43 @@ impl Meta for PatchConfig {
   }
 }
 
-impl MetaMut for PatchConfig {
-  set_body!();
-
-  fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
+impl StructAccess for PatchConfig {
+  fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
     match name {
-      "enabled" => Some(ObjectRefMut::new(&mut self.enabled as &mut dyn MetaMut)),
-      "labels" => Some(ObjectRefMut::new(&mut self.labels as &mut dyn MetaMut)),
-      "profile" => Some(ObjectRefMut::new(&mut self.profile as &mut dyn MetaMut)),
-      "items" => Some(ObjectRefMut::new(&mut self.items as &mut dyn MetaMut)),
+      "enabled" => Some(ObjectRef::new(&self.enabled)),
+      "labels" => Some(ObjectRef::new(&self.labels)),
+      "profile" => Some(ObjectRef::new(&self.profile)),
+      "items" => Some(ObjectRef::new(&self.items)),
       _ => None,
     }
   }
 
+  fn field_names(&self) -> &'static [&'static str] {
+    &["enabled", "labels", "profile", "items"]
+  }
+}
+
+impl MetaMut for PatchConfig {
+  set_body!();
+
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Struct(self)
+  }
+
   fn as_any_mut(&mut self) -> &mut dyn Any {
     self
+  }
+}
+
+impl StructAccessMut for PatchConfig {
+  fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
+    match name {
+      "enabled" => Some(ObjectRefMut::new(&mut self.enabled)),
+      "labels" => Some(ObjectRefMut::new(&mut self.labels)),
+      "profile" => Some(ObjectRefMut::new(&mut self.profile)),
+      "items" => Some(ObjectRefMut::new(&mut self.items)),
+      _ => None,
+    }
   }
 }
 
@@ -332,12 +371,8 @@ pub(super) struct RejectInsert {
 }
 
 impl Meta for RejectInsert {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Sequence
-  }
-
-  fn len(&self) -> Option<usize> {
-    Some(self.values.len())
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Sequence(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -349,8 +384,35 @@ impl Meta for RejectInsert {
   }
 }
 
+impl SequenceAccess for RejectInsert {
+  fn len(&self) -> usize {
+    self.values.len()
+  }
+
+  fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
+    self.values.get(index).map(|value| ObjectRef::new(value))
+  }
+}
+
 impl MetaMut for RejectInsert {
   set_body!();
+
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Sequence(self)
+  }
+
+  fn as_any_mut(&mut self) -> &mut dyn Any {
+    self
+  }
+}
+
+impl SequenceAccessMut for RejectInsert {
+  fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
+    self
+      .values
+      .get_mut(index)
+      .map(|value| ObjectRefMut::new(value))
+  }
 
   fn move_item(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {
     move_item_by_remove_insert(self, from, to)
@@ -358,9 +420,5 @@ impl MetaMut for RejectInsert {
 
   fn remove_item(&mut self, index: usize) -> Option<Object> {
     (index < self.values.len()).then(|| Object::new(self.values.remove(index)))
-  }
-
-  fn as_any_mut(&mut self) -> &mut dyn Any {
-    self
   }
 }

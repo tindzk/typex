@@ -7,7 +7,7 @@ use core::fmt;
 
 /// Classifies the structural shape exposed by a [`Meta`] implementation.
 ///
-/// Use [`Meta::access_kind`] and the relevant accessors to discover how a
+/// Use [`ObjectRef::access_kind`] and the relevant accessors to discover how a
 /// value can be traversed.
 ///
 /// # Example
@@ -37,15 +37,15 @@ pub enum ValueKind {
   /// An optional value. `Some(value)` forwards structural access to its inner
   /// value. `None` represents the empty state and has length zero.
   Option,
-  /// A value with named fields exposed through [`Meta::field`] and
-  /// [`Meta::field_names`].
+  /// A value with named fields exposed through [`ObjectRef::field`] and
+  /// [`ObjectRef::field_names`].
   Struct,
-  /// A value with keyed entries exposed through [`Meta::key`], [`Meta::keys`]
-  /// and [`Meta::len`]. [`TypedMapAccess`] provides access for concrete key
+  /// A value with keyed entries exposed through [`ObjectRef::key`], [`ObjectRef::keys`]
+  /// and [`ObjectRef::len`]. [`TypedMapAccess`] provides access for concrete key
   /// types.
   Map,
-  /// An ordered value with indexed items exposed through [`Meta::item`] and
-  /// [`Meta::len`].
+  /// An ordered value with indexed items exposed through [`ObjectRef::item`] and
+  /// [`ObjectRef::len`].
   Sequence,
 }
 
@@ -67,17 +67,17 @@ pub enum ValueKind {
 /// ```
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AccessKind {
-  /// Access fields by name and enumerate field names via [`Meta::field`] and
-  /// [`Meta::field_names`]. Typically used for structs.
+  /// Access fields by name and enumerate field names via [`ObjectRef::field`] and
+  /// [`ObjectRef::field_names`]. Typically used for structs.
   Field,
-  /// Access values by key and enumerate keys and length via [`Meta::key`],
-  /// [`Meta::keys`] and [`Meta::len`]. Typically used for maps.
+  /// Access values by key and enumerate keys and length via [`ObjectRef::key`],
+  /// [`ObjectRef::keys`] and [`ObjectRef::len`]. Typically used for maps.
   Key,
-  /// Access items by index and report their length via [`Meta::item`] and
-  /// [`Meta::len`]. Typically used for sequences.
+  /// Access items by index and report their length via [`ObjectRef::item`] and
+  /// [`ObjectRef::len`]. Typically used for sequences.
   Item,
-  /// Access items by key or by index via [`Meta::key`] and [`Meta::item`],
-  /// and enumerate keys and length via [`Meta::keys`] and [`Meta::len`]. Each
+  /// Access items by key or by index via [`ObjectRef::key`] and [`ObjectRef::item`],
+  /// and enumerate keys and length via [`ObjectRef::keys`] and [`ObjectRef::len`]. Each
   /// key is unique. Typically used for ordered collections with key and index
   /// access.
   ItemKey,

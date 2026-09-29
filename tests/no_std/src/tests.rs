@@ -4,10 +4,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::ToString;
 use alloc::vec;
 use alloc::vec::Vec;
-use typex::{
-  FieldPath, Meta, Object, ObjectOps, ObjectRefMut, PathSegment, SendObject,
-  TypedMapAccess,
-};
+use typex::{Object, ObjectOps, ObjectRef, ObjectRefMut, PathSegment, SendObject, TypedMapAccess};
 use typex_derive::{Meta, MetaMut};
 
 #[derive(Debug, PartialEq, Meta)]
@@ -62,7 +59,7 @@ fn meta_smoke_test() {
     labels_by_name: BTreeMap::from([("primary", Label { name: "mapped" })]),
   };
   assert_eq!(
-    payload.field_names(),
+    ObjectRef::new(&payload).field_names(),
     &[
       "values",
       "label",
@@ -76,16 +73,25 @@ fn meta_smoke_test() {
       "labels_by_name",
     ]
   );
-  assert_eq!(payload.field("values").unwrap().to_ref::<usize>(), Some(&2));
   assert_eq!(
-    payload.field("label").unwrap().to_ref::<&'static str>(),
+    ObjectRef::new(&payload)
+      .field("values")
+      .unwrap()
+      .to_ref::<usize>(),
+    Some(&2)
+  );
+  assert_eq!(
+    ObjectRef::new(&payload)
+      .field("label")
+      .unwrap()
+      .to_ref::<&'static str>(),
     Some(&"ok")
   );
-  let labels = payload.field("labels").unwrap();
+  let labels = ObjectRef::new(&payload).field("labels").unwrap();
   assert_eq!(labels.len(), Some(1));
   assert_eq!(labels.item(0).unwrap().field_names(), &["name"]);
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field("optional_label")
       .unwrap()
       .field("name")
@@ -93,18 +99,36 @@ fn meta_smoke_test() {
       .to_ref::<&'static str>(),
     Some(&"optional")
   );
-  assert_eq!(payload.field("optional_label").unwrap().len(), Some(1));
-  assert_eq!(payload.field("absent_label").unwrap().len(), Some(0));
+  assert_eq!(
+    ObjectRef::new(&payload)
+      .field("optional_label")
+      .unwrap()
+      .len(),
+    Some(1)
+  );
+  assert_eq!(
+    ObjectRef::new(&payload)
+      .field("absent_label")
+      .unwrap()
+      .len(),
+    Some(0)
+  );
   assert!(
-    payload
+    ObjectRef::new(&payload)
       .field("absent_label")
       .unwrap()
       .field("name")
       .is_none()
   );
-  assert!(payload.field("absent_label").unwrap().item(0).is_none());
+  assert!(
+    ObjectRef::new(&payload)
+      .field("absent_label")
+      .unwrap()
+      .item(0)
+      .is_none()
+  );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field("pair")
       .unwrap()
       .item(0)
@@ -113,7 +137,7 @@ fn meta_smoke_test() {
     Some(&4)
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field("bytes")
       .unwrap()
       .item(1)
@@ -122,7 +146,7 @@ fn meta_smoke_test() {
     Some(&0xff)
   );
 
-  let labels_by_name = payload.field("labels_by_name").unwrap();
+  let labels_by_name = ObjectRef::new(&payload).field("labels_by_name").unwrap();
   assert_eq!(labels_by_name.keys(), Some(vec!["primary".to_string()]));
   assert_eq!(
     labels_by_name
@@ -143,7 +167,7 @@ fn meta_smoke_test() {
       .to_ref::<&'static str>(),
     Some(&"indexed")
   );
-  let status = payload.field("status").unwrap();
+  let status = ObjectRef::new(&payload).field("status").unwrap();
   assert_eq!(status.field_names(), &["Struct", "count"]);
   assert_eq!(
     status
@@ -155,7 +179,7 @@ fn meta_smoke_test() {
     Some(&6)
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[
         PathSegment::Field("labels"),
         PathSegment::Item(0),
@@ -166,7 +190,7 @@ fn meta_smoke_test() {
     Some(&"primary")
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[
         PathSegment::Field("labels_by_name"),
         PathSegment::Key("primary"),
@@ -177,7 +201,7 @@ fn meta_smoke_test() {
     Some(&"mapped")
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[
         PathSegment::Field("optional_label"),
         PathSegment::Field("name"),
@@ -187,14 +211,14 @@ fn meta_smoke_test() {
     Some(&"optional")
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[PathSegment::Field("pair"), PathSegment::Item(1)])
       .unwrap()
       .to_ref::<bool>(),
     Some(&false)
   );
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field_path(&[
         PathSegment::Field("status"),
         PathSegment::Field("Struct"),
@@ -209,11 +233,14 @@ fn meta_smoke_test() {
 #[test]
 fn tuple_and_unit_enum_variants_are_accessible() {
   let tuple = Status::Tuple(9, true);
-  assert_eq!(tuple.field_names(), &["Tuple", "0", "1"]);
-  assert_eq!(tuple.len(), Some(2));
-  assert_eq!(tuple.item(0).unwrap().to_ref::<u8>(), Some(&9));
+  assert_eq!(ObjectRef::new(&tuple).field_names(), &["Tuple", "0", "1"]);
+  assert_eq!(ObjectRef::new(&tuple).len(), Some(2));
   assert_eq!(
-    tuple
+    ObjectRef::new(&tuple).item(0).unwrap().to_ref::<u8>(),
+    Some(&9)
+  );
+  assert_eq!(
+    ObjectRef::new(&tuple)
       .field("Tuple")
       .unwrap()
       .item(1)
@@ -223,8 +250,14 @@ fn tuple_and_unit_enum_variants_are_accessible() {
   );
 
   let ready = Status::Ready;
-  assert_eq!(ready.field_names(), &["Ready"]);
-  assert!(ready.field("Ready").unwrap().field("missing").is_none());
+  assert_eq!(ObjectRef::new(&ready).field_names(), &["Ready"]);
+  assert!(
+    ObjectRef::new(&ready)
+      .field("Ready")
+      .unwrap()
+      .field("missing")
+      .is_none()
+  );
 }
 
 #[test]
@@ -249,7 +282,7 @@ fn derived_set_swaps_a_nested_field_wholesale() {
     .unwrap();
 
   assert_eq!(
-    payload
+    ObjectRef::new(&payload)
       .field("optional_label")
       .unwrap()
       .field("name")

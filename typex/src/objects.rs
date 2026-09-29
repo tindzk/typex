@@ -1,55 +1,22 @@
 // Keep public API names in scope for short intra-doc links.
 #[allow(unused_imports)]
 use crate::{
-  AccessKind, ApplyError, FieldPathQuery, FieldPathQueryMut, MapEntryVisitor, Meta, MetaMut,
-  MutationBatch, PatchOperation, PathSegment, ReflectiveError, TypeInfo, TypedPath, ValueKind,
-  apply_patch,
+  AccessKind, ApplyError, FieldPathQuery, FieldPathQueryMut, MapAccessMut, MapEntryVisitor, Meta,
+  MetaMut, MoveItemError, MutationBatch, PatchOperation, PathSegment, Reflect, ReflectMut,
+  ReflectiveError, SequenceAccessMut, TypeInfo, TypedPath, ValueKind, apply_patch,
 };
 use alloc::boxed::Box;
-use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::any::Any;
 use core::fmt;
-use core::ops::{Deref, DerefMut};
 
-fn fmt_meta<T: Meta + ?Sized>(f: &mut fmt::Formatter<'_>, name: &str, meta: &T) -> fmt::Result {
+fn fmt_meta(f: &mut fmt::Formatter<'_>, name: &str, meta: &dyn Meta) -> fmt::Result {
+  let view = ObjectRef::new(meta);
   f.debug_struct(name)
-    .field("type_name", &meta.type_name())
-    .field("kind", &meta.kind())
+    .field("type_name", &view.type_name())
+    .field("kind", &view.kind())
     .finish()
-}
-
-impl dyn Meta + '_ {
-  /// Downcasts the reference to `T`.
-  pub fn to_ref<T: 'static>(&self) -> Option<&T> {
-    self.as_any().downcast_ref::<T>()
-  }
-
-  /// Checks whether the value has type `T`.
-  pub fn is<T: 'static>(&self) -> bool {
-    self.as_any().is::<T>()
-  }
-
-  /// Passes each map entry to `visitor` until it returns `false`.
-  ///
-  /// Returns `false` when the value has no map-like access. Stopping early
-  /// still returns `true`.
-  pub fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
-    Meta::visit_map_entries(self, visitor)
-  }
-
-  /// Traverses a nested field, item or key path; see [`FieldPathQuery`].
-  pub fn field_path<'a, Q: FieldPathQuery<'a>>(&'a self, query: Q) -> Option<Q::Output> {
-    ObjectRef::new(self).field_path(query)
-  }
-}
-
-/// Structural equality via [`Meta::eq_dyn`].
-impl PartialEq for dyn Meta + '_ {
-  fn eq(&self, other: &Self) -> bool {
-    self.eq_dyn(other)
-  }
 }
 
 /// Borrowed reflective view of a [`Meta`] value.
@@ -71,86 +38,137 @@ pub struct ObjectRef<'a> {
 
 impl<'a> ObjectRef<'a> {
   /// Creates a borrowed object reference.
+  #[inline]
   pub fn new(inner: &'a dyn Meta) -> Self {
     ObjectRef { inner }
   }
 
   /// Returns the underlying [`Meta`] trait object.
+  #[inline]
   pub fn as_meta(&self) -> &'a dyn Meta {
     self.inner
   }
 
   /// Returns runtime type metadata for the referenced value.
+  #[inline]
   pub fn type_info(&self) -> TypeInfo {
     self.inner.type_info()
   }
 
   /// Returns the Rust type name of the referenced value.
+  #[inline]
   pub fn type_name(&self) -> &'static str {
-    self.inner.type_name()
+    self.inner.type_info().type_name()
   }
 
   /// Returns the type ID of the referenced value.
+  #[inline]
   pub fn id(&self) -> core::any::TypeId {
-    self.inner.id()
+    self.inner.type_info().id()
   }
 
   /// Determines the structural shape of the referenced value.
+  #[inline]
   pub fn kind(&self) -> ValueKind {
-    self.inner.kind()
+    self.inner.reflect().kind()
   }
 
   /// Returns the named or keyed access exposed by the referenced value, if any.
+  ///
+  /// An option reports the access of its contained value.
+  #[inline]
   pub fn access_kind(&self) -> Option<AccessKind> {
-    self.inner.access_kind()
+    match self.inner.reflect() {
+      Reflect::Scalar => None,
+      Reflect::Struct(value) => (!value.field_names().is_empty()).then_some(AccessKind::Field),
+      Reflect::Sequence(_) => Some(AccessKind::Item),
+      Reflect::Map(value) => Some(value.access_kind()),
+      Reflect::Option(value) => value?.access_kind(),
+    }
   }
 
   /// Returns the contained value when this reference points to `Some(value)`.
+  #[inline]
   pub fn option_value(&self) -> Option<ObjectRef<'a>> {
-    self.inner.option_value()
+    match self.inner.reflect() {
+      Reflect::Option(value) => value,
+      _ => None,
+    }
   }
 
-  /// Returns an exposed field by name.
+  /// Returns an exposed field by name; see [`Meta::field_dyn`].
+  #[inline]
   pub fn field(&self, name: &str) -> Option<ObjectRef<'a>> {
-    self.inner.field(name)
+    self.inner.field_dyn(name)
   }
 
   /// Returns the exposed field names in declaration order.
+  #[inline]
   pub fn field_names(&self) -> &'static [&'static str] {
-    self.inner.field_names()
+    match self.inner.reflect() {
+      Reflect::Struct(value) => value.field_names(),
+      Reflect::Option(Some(value)) => value.field_names(),
+      _ => &[],
+    }
   }
 
-  /// Returns an item at `index` for sequential access.
+  /// Returns an item at `index`; see [`Meta::item_dyn`].
+  #[inline]
   pub fn item(&self, index: usize) -> Option<ObjectRef<'a>> {
-    self.inner.item(index)
+    self.inner.item_dyn(index)
   }
 
   /// Returns the number of exposed structural items, when available.
+  ///
+  /// For maps, this is the number of keyed entries. An option has one item
+  /// when it holds a value.
+  #[inline]
   pub fn len(&self) -> Option<usize> {
-    self.inner.len()
+    match self.inner.reflect() {
+      Reflect::Struct(value) => value.len(),
+      Reflect::Sequence(value) => Some(value.len()),
+      Reflect::Map(value) => Some(value.len()),
+      Reflect::Option(value) => Some(usize::from(value.is_some())),
+      Reflect::Scalar => None,
+    }
   }
 
   /// Checks whether a value has no exposed structural items, when available.
+  #[inline]
   pub fn is_empty(&self) -> Option<bool> {
-    self.inner.is_empty()
+    self.len().map(|len| len == 0)
   }
 
-  /// Returns a value for `key` during map-like access.
+  /// Returns a value for a string-like `key`; see [`Meta::key_dyn`].
+  #[inline]
   pub fn key(&self, key: &str) -> Option<ObjectRef<'a>> {
-    self.inner.key(key)
+    self.inner.key_dyn(key)
   }
 
-  /// Returns the available keys for map-like access.
+  /// Returns the keys as strings for map-like access.
+  #[inline]
   pub fn keys(&self) -> Option<Vec<String>> {
-    self.inner.keys()
+    match self.inner.reflect() {
+      Reflect::Map(value) => value.keys(),
+      Reflect::Option(value) => value?.keys(),
+      _ => None,
+    }
   }
 
   /// Passes each map entry to `visitor` until it returns `false`.
   ///
   /// Returns `false` when the value has no map-like access. Stopping early
   /// still returns `true`.
+  #[inline]
   pub fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
-    Meta::visit_map_entries(self.inner, visitor)
+    match self.inner.reflect() {
+      Reflect::Map(value) => {
+        value.visit_entries(visitor);
+        true
+      }
+      Reflect::Option(Some(value)) => value.visit_map_entries(visitor),
+      _ => false,
+    }
   }
 
   /// Downcasts the reference to `T`.
@@ -161,12 +179,6 @@ impl<'a> ObjectRef<'a> {
   /// Checks whether the referenced value has type `T`.
   pub fn is<T: 'static>(&self) -> bool {
     self.inner.as_any().is::<T>()
-  }
-
-  /// Compares the referenced value against `other` structurally; see
-  /// [`Meta::eq_dyn`].
-  pub fn eq_dyn(&self, other: ObjectRef<'_>) -> bool {
-    self.inner.eq_dyn(other.inner)
   }
 
   /// Traverses a nested field, item or key path. Accepts a raw
@@ -185,10 +197,117 @@ impl fmt::Debug for ObjectRef<'_> {
 
 /// Structural equality via [`Meta::eq_dyn`].
 impl PartialEq for ObjectRef<'_> {
+  #[inline]
   fn eq(&self, other: &Self) -> bool {
     self.inner.eq_dyn(other.inner)
   }
 }
+
+/// Generates read accessors that forward to [`ObjectRef`] through each
+/// wrapper's `as_object_ref` method, so that every wrapper shares the
+/// implementation above.
+macro_rules! forward_object_reads {
+  ($ty:ty) => {
+    impl $ty {
+      /// Returns runtime type metadata; see [`ObjectRef::type_info`].
+      #[inline]
+      pub fn type_info(&self) -> TypeInfo {
+        self.as_object_ref().type_info()
+      }
+
+      /// Returns the Rust type name; see [`ObjectRef::type_name`].
+      #[inline]
+      pub fn type_name(&self) -> &'static str {
+        self.as_object_ref().type_name()
+      }
+
+      /// Returns the type ID; see [`ObjectRef::id`].
+      #[inline]
+      pub fn id(&self) -> core::any::TypeId {
+        self.as_object_ref().id()
+      }
+
+      /// Returns the structural kind; see [`ObjectRef::kind`].
+      #[inline]
+      pub fn kind(&self) -> ValueKind {
+        self.as_object_ref().kind()
+      }
+
+      /// Returns the named or indexed access; see [`ObjectRef::access_kind`].
+      #[inline]
+      pub fn access_kind(&self) -> Option<AccessKind> {
+        self.as_object_ref().access_kind()
+      }
+
+      /// Returns the contained value of an option; see
+      /// [`ObjectRef::option_value`].
+      #[inline]
+      pub fn option_value(&self) -> Option<ObjectRef<'_>> {
+        self.as_object_ref().option_value()
+      }
+
+      /// Returns an exposed field by name; see [`ObjectRef::field`].
+      #[inline]
+      pub fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
+        self.as_object_ref().field(name)
+      }
+
+      /// Returns the exposed field names; see [`ObjectRef::field_names`].
+      #[inline]
+      pub fn field_names(&self) -> &'static [&'static str] {
+        self.as_object_ref().field_names()
+      }
+
+      /// Returns an item at `index`; see [`ObjectRef::item`].
+      #[inline]
+      pub fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
+        self.as_object_ref().item(index)
+      }
+
+      /// Returns the number of exposed items; see [`ObjectRef::len`].
+      #[inline]
+      pub fn len(&self) -> Option<usize> {
+        self.as_object_ref().len()
+      }
+
+      /// Checks whether there are no exposed items; see [`ObjectRef::is_empty`].
+      #[inline]
+      pub fn is_empty(&self) -> Option<bool> {
+        self.as_object_ref().is_empty()
+      }
+
+      /// Returns a value for `key`; see [`ObjectRef::key`].
+      #[inline]
+      pub fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
+        self.as_object_ref().key(key)
+      }
+
+      /// Returns the keys as strings; see [`ObjectRef::keys`].
+      #[inline]
+      pub fn keys(&self) -> Option<Vec<String>> {
+        self.as_object_ref().keys()
+      }
+
+      /// Passes each map entry to `visitor`; see
+      /// [`ObjectRef::visit_map_entries`].
+      #[inline]
+      pub fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
+        self.as_object_ref().visit_map_entries(visitor)
+      }
+
+      /// Traverses a nested field, item or key path; see
+      /// [`ObjectRef::field_path`].
+      pub fn field_path<'s, Q: FieldPathQuery<'s>>(&'s self, query: Q) -> Option<Q::Output> {
+        self.as_object_ref().field_path(query)
+      }
+    }
+  };
+}
+
+forward_object_reads!(Object);
+forward_object_reads!(ObjectRefMut<'_>);
+forward_object_reads!(ObjectMut);
+forward_object_reads!(SendObject);
 
 /// Owned reflective value stored as a boxed [`Meta`] trait object.
 ///
@@ -217,45 +336,15 @@ impl Object {
   }
 
   /// Returns the underlying boxed [`Meta`] trait object.
+  #[inline]
   pub fn into_inner(self) -> Box<dyn Meta> {
     self.0
   }
 
-  /// Converts into a reference-counted [`Meta`] trait object.
-  pub fn into_rc(self) -> Rc<dyn Meta> {
-    Rc::from(self.0)
-  }
-}
-
-impl From<Box<dyn Meta>> for Object {
-  fn from(value: Box<dyn Meta>) -> Self {
-    Self(value)
-  }
-}
-
-impl Deref for Object {
-  type Target = dyn Meta;
-
-  fn deref(&self) -> &Self::Target {
-    self.0.as_ref()
-  }
-}
-
-impl DerefMut for Object {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    self.0.as_mut()
-  }
-}
-
-impl AsRef<dyn Meta> for Object {
-  fn as_ref(&self) -> &(dyn Meta + 'static) {
-    self.0.as_ref()
-  }
-}
-
-impl AsMut<dyn Meta> for Object {
-  fn as_mut(&mut self) -> &mut (dyn Meta + 'static) {
-    self.0.as_mut()
+  /// Returns a borrowed [`ObjectRef`] view of the value.
+  #[inline]
+  pub fn as_object_ref(&self) -> ObjectRef<'_> {
+    ObjectRef::new(self.0.as_ref())
   }
 }
 
@@ -267,6 +356,7 @@ impl fmt::Debug for Object {
 
 /// Structural equality via [`Meta::eq_dyn`].
 impl PartialEq for Object {
+  #[inline]
   fn eq(&self, other: &Self) -> bool {
     Meta::eq_dyn(self.0.as_ref(), other.0.as_ref())
   }
@@ -299,61 +389,23 @@ impl<'a> ObjectRefMut<'a> {
       return Some(ObjectRefMut::new(current));
     };
     let child = match segment {
-      PathSegment::Field(name) => current.field_mut(name)?,
-      PathSegment::Item(index) => current.item_mut(*index)?,
-      PathSegment::Key(key) => current.key_mut(key)?,
+      PathSegment::Field(name) => current.field_mut_dyn(name)?,
+      PathSegment::Item(index) => current.item_mut_dyn(*index)?,
+      PathSegment::Key(key) => current.key_mut_dyn(key)?,
     };
     Self::path_from(child.inner, rest)
   }
 
   /// Creates a borrowed mutable object reference.
+  #[inline]
   pub fn new(inner: &'a mut dyn MetaMut) -> Self {
     Self { inner }
   }
 
-  /// Returns runtime type metadata for the referenced value.
-  pub fn type_info(&self) -> TypeInfo {
-    self.inner.type_info()
-  }
-
-  /// Returns the Rust type name of the referenced value.
-  pub fn type_name(&self) -> &'static str {
-    self.inner.type_name()
-  }
-
-  /// Returns the type ID of the referenced value.
-  pub fn id(&self) -> core::any::TypeId {
-    self.inner.id()
-  }
-
-  /// Determines the structural shape of the referenced value.
-  pub fn kind(&self) -> ValueKind {
-    self.inner.kind()
-  }
-
-  /// Returns the named or keyed access exposed by the referenced value, if any.
-  pub fn access_kind(&self) -> Option<AccessKind> {
-    self.inner.access_kind()
-  }
-
-  /// Returns the exposed field names in declaration order.
-  pub fn field_names(&self) -> &'static [&'static str] {
-    self.inner.field_names()
-  }
-
-  /// Returns the number of exposed structural items, when available.
-  pub fn len(&self) -> Option<usize> {
-    self.inner.len()
-  }
-
-  /// Checks whether a value has no exposed structural items, when available.
-  pub fn is_empty(&self) -> Option<bool> {
-    self.inner.is_empty()
-  }
-
-  /// Returns the available keys for map-like access.
-  pub fn keys(&self) -> Option<Vec<String>> {
-    self.inner.keys()
+  /// Returns a borrowed [`ObjectRef`] view of the value.
+  #[inline]
+  pub fn as_object_ref(&self) -> ObjectRef<'_> {
+    ObjectRef::new(self.inner.as_meta())
   }
 
   /// Checks whether the referenced value has type `T`.
@@ -361,20 +413,15 @@ impl<'a> ObjectRefMut<'a> {
     self.inner.as_any().is::<T>()
   }
 
-  /// Compares the referenced value against `other` structurally; see
-  /// [`Meta::eq_dyn`].
-  pub fn eq_dyn(&self, other: &ObjectRefMut<'_>) -> bool {
-    self.inner.as_meta().eq_dyn(other.inner.as_meta())
-  }
-
   /// Returns a mutable field by name.
   ///
   /// Returns [`ReflectiveError::PathNotFound`] when no field named `name` is
   /// exposed.
+  #[inline]
   pub fn field_mut(&mut self, name: &str) -> Result<ObjectRefMut<'_>, ReflectiveError> {
     self
       .inner
-      .field_mut(name)
+      .field_mut_dyn(name)
       .ok_or(ReflectiveError::PathNotFound)
   }
 
@@ -382,10 +429,11 @@ impl<'a> ObjectRefMut<'a> {
   ///
   /// Returns [`ReflectiveError::PathNotFound`] when sequential access is
   /// unsupported or `index` is out of bounds.
+  #[inline]
   pub fn item_mut(&mut self, index: usize) -> Result<ObjectRefMut<'_>, ReflectiveError> {
     self
       .inner
-      .item_mut(index)
+      .item_mut_dyn(index)
       .ok_or(ReflectiveError::PathNotFound)
   }
 
@@ -393,8 +441,12 @@ impl<'a> ObjectRefMut<'a> {
   ///
   /// Returns [`ReflectiveError::PathNotFound`] when map-like access is
   /// unsupported or `key` is not present.
+  #[inline]
   pub fn key_mut(&mut self, key: &str) -> Result<ObjectRefMut<'_>, ReflectiveError> {
-    self.inner.key_mut(key).ok_or(ReflectiveError::PathNotFound)
+    self
+      .inner
+      .key_mut_dyn(key)
+      .ok_or(ReflectiveError::PathNotFound)
   }
 
   /// Inserts or replaces a value under a key when the referenced value exposes
@@ -403,16 +455,16 @@ impl<'a> ObjectRefMut<'a> {
   /// Returns [`ReflectiveError::MutationTypeMismatch`] when keyed insertion is
   /// unsupported, the key cannot be built from `key` or `value` has an
   /// incompatible concrete type.
+  #[inline]
   pub fn insert_key(
     &mut self,
     key: &str,
     value: Object,
   ) -> Result<ObjectRefMut<'_>, ReflectiveError> {
-    let child = self
+    self
       .inner
-      .insert_key(key, value)
-      .map_err(|_| ReflectiveError::MutationTypeMismatch)?;
-    Ok(child)
+      .insert_key_dyn(key, value)
+      .map_err(|_| ReflectiveError::MutationTypeMismatch)
   }
 
   /// Inserts a value at `index` for sequential access, returning a mutable
@@ -421,16 +473,16 @@ impl<'a> ObjectRefMut<'a> {
   /// Returns [`ReflectiveError::MutationTypeMismatch`] when indexed insertion
   /// is unsupported, `index` is out of bounds or `value` has an incompatible
   /// concrete type.
+  #[inline]
   pub fn insert_item(
     &mut self,
     index: usize,
     value: Object,
   ) -> Result<ObjectRefMut<'_>, ReflectiveError> {
-    let child = self
+    self
       .inner
-      .insert_item(index, value)
-      .map_err(|_| ReflectiveError::MutationTypeMismatch)?;
-    Ok(child)
+      .insert_item_dyn(index, value)
+      .map_err(|_| ReflectiveError::MutationTypeMismatch)
   }
 
   /// Appends a value when the referenced value exposes sequential access,
@@ -438,60 +490,67 @@ impl<'a> ObjectRefMut<'a> {
   ///
   /// Returns [`ReflectiveError::MutationTypeMismatch`] when appending is
   /// unsupported or `value` has an incompatible concrete type.
+  #[inline]
   pub fn push_item(&mut self, value: Object) -> Result<ObjectRefMut<'_>, ReflectiveError> {
-    let child = self
+    self
       .inner
-      .push_item(value)
-      .map_err(|_| ReflectiveError::MutationTypeMismatch)?;
-    Ok(child)
+      .push_item_dyn(value)
+      .map_err(|_| ReflectiveError::MutationTypeMismatch)
   }
 
   /// Removes the value for `key`.
   ///
   /// Returns [`ReflectiveError::PathNotFound`] when keyed removal is
   /// unsupported or `key` is not present.
+  #[inline]
   pub fn remove_key(&mut self, key: &str) -> Result<Object, ReflectiveError> {
-    let removed = self
+    self
       .inner
-      .remove_key(key)
-      .ok_or(ReflectiveError::PathNotFound)?;
-    Ok(removed)
+      .remove_key_dyn(key)
+      .ok_or(ReflectiveError::PathNotFound)
   }
 
   /// Removes the item at `index`.
   ///
   /// Returns [`ReflectiveError::PathNotFound`] when indexed removal is
   /// unsupported or `index` is out of bounds.
+  #[inline]
   pub fn remove_item(&mut self, index: usize) -> Result<Object, ReflectiveError> {
-    let removed = self
+    self
       .inner
-      .remove_item(index)
-      .ok_or(ReflectiveError::PathNotFound)?;
-    Ok(removed)
+      .remove_item_dyn(index)
+      .ok_or(ReflectiveError::PathNotFound)
+  }
+
+  /// Moves an item; see [`SequenceAccessMut::move_item`].
+  #[inline]
+  pub fn move_item(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {
+    self.inner.move_item_dyn(from, to)
   }
 
   /// Overwrites the whole referenced value in place with `value`, consuming
-  /// this handle. See [`MetaMut::set`].
+  /// this handle. See [`MetaMut::set_dyn`].
   ///
   /// Returns [`ReflectiveError::MutationTypeMismatch`] when replacement is
   /// unsupported or `value` has an incompatible concrete type.
+  #[inline]
   pub fn set(self, value: Object) -> Result<(), ReflectiveError> {
     self
       .inner
-      .set(value)
-      .map_err(|_| ReflectiveError::MutationTypeMismatch)?;
-    Ok(())
+      .set_dyn(value)
+      .map_err(|_| ReflectiveError::MutationTypeMismatch)
   }
 
   /// Replaces the whole referenced value and returns the previous value. See
-  /// [`MetaMut::replace`].
+  /// [`MetaMut::replace_dyn`].
   ///
   /// Returns [`ReflectiveError::MutationTypeMismatch`] when replacement is
   /// unsupported or `value` has an incompatible concrete type.
+  #[inline]
   pub fn replace(&mut self, value: Object) -> Result<Object, ReflectiveError> {
     self
       .inner
-      .replace(value)
+      .replace_dyn(value)
       .map_err(|_| ReflectiveError::MutationTypeMismatch)
   }
 
@@ -512,12 +571,11 @@ impl<'a> ObjectRefMut<'a> {
   /// Returns [`ReflectiveError::MutationTypeMismatch`] when the referenced
   /// value is not a `T`.
   pub fn to_mut<T: 'static>(self) -> Result<&'a mut T, ReflectiveError> {
-    let value = self
+    self
       .inner
       .as_any_mut()
       .downcast_mut::<T>()
-      .ok_or(ReflectiveError::MutationTypeMismatch)?;
-    Ok(value)
+      .ok_or(ReflectiveError::MutationTypeMismatch)
   }
 
   /// Traverses a nested field, item or key path; see [`FieldPathQueryMut`].
@@ -559,8 +617,9 @@ impl fmt::Debug for ObjectRefMut<'_> {
 
 /// Structural equality via [`Meta::eq_dyn`].
 impl PartialEq for ObjectRefMut<'_> {
+  #[inline]
   fn eq(&self, other: &Self) -> bool {
-    self.eq_dyn(other)
+    self.inner.eq_dyn(other.inner.as_meta())
   }
 }
 
@@ -598,48 +657,8 @@ impl Meta for MetaMutObject {
     self.0.type_info()
   }
 
-  fn kind(&self) -> ValueKind {
-    self.0.kind()
-  }
-
-  fn access_kind(&self) -> Option<AccessKind> {
-    self.0.access_kind()
-  }
-
-  fn option_value(&self) -> Option<ObjectRef<'_>> {
-    self.0.option_value()
-  }
-
-  fn field(&self, name: &str) -> Option<ObjectRef<'_>> {
-    self.0.field(name)
-  }
-
-  fn field_names(&self) -> &'static [&'static str] {
-    self.0.field_names()
-  }
-
-  fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-    self.0.item(index)
-  }
-
-  fn len(&self) -> Option<usize> {
-    self.0.len()
-  }
-
-  fn is_empty(&self) -> Option<bool> {
-    self.0.is_empty()
-  }
-
-  fn key(&self, key: &str) -> Option<ObjectRef<'_>> {
-    self.0.key(key)
-  }
-
-  fn keys(&self) -> Option<Vec<String>> {
-    self.0.keys()
-  }
-
-  fn visit_map_entries(&self, visitor: &mut MapEntryVisitor<'_>) -> bool {
-    self.0.visit_map_entries(visitor)
+  fn reflect(&self) -> Reflect<'_> {
+    self.0.reflect()
   }
 
   fn eq_dyn(&self, other: &dyn Meta) -> bool {
@@ -676,51 +695,131 @@ impl ObjectMut {
   }
 
   /// Returns the underlying boxed [`MetaMut`] trait object.
+  #[inline]
   pub fn into_inner(self) -> Box<dyn MetaMut> {
     self.0
   }
 
   /// Converts the owned mutable value into an immutable reflective object.
+  #[inline]
   pub fn into_object(self) -> Object {
     Object::new(MetaMutObject(self.0))
   }
-}
 
-impl From<Box<dyn MetaMut>> for ObjectMut {
-  fn from(value: Box<dyn MetaMut>) -> Self {
-    Self(value)
+  /// Returns a borrowed [`ObjectRef`] view of the value.
+  #[inline]
+  pub fn as_object_ref(&self) -> ObjectRef<'_> {
+    ObjectRef::new(self.0.as_meta())
+  }
+
+  /// Returns a borrowed [`ObjectRefMut`] view of the value.
+  #[inline]
+  pub fn as_object_ref_mut(&mut self) -> ObjectRefMut<'_> {
+    ObjectRefMut::new(self.0.as_mut())
+  }
+
+  /// Returns a mutable field by name; see [`MetaMut::field_mut_dyn`].
+  #[inline]
+  pub fn field_mut(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
+    self.0.field_mut_dyn(name)
+  }
+
+  /// Returns a mutable item at `index`; see [`MetaMut::item_mut_dyn`].
+  #[inline]
+  pub fn item_mut(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
+    self.0.item_mut_dyn(index)
+  }
+
+  /// Returns a mutable value for `key`; see [`MetaMut::key_mut_dyn`].
+  #[inline]
+  pub fn key_mut(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
+    self.0.key_mut_dyn(key)
+  }
+
+  /// Overwrites the whole value; see [`MetaMut::set_dyn`].
+  #[inline]
+  pub fn set(&mut self, value: Object) -> Result<(), Object> {
+    self.0.set_dyn(value)
+  }
+
+  /// Replaces the whole value and returns the previous value; see
+  /// [`MetaMut::replace_dyn`].
+  #[inline]
+  pub fn replace(&mut self, value: Object) -> Result<Object, Object> {
+    self.0.replace_dyn(value)
+  }
+
+  /// Downcasts the value to `T`.
+  pub fn to_mut<T: 'static>(&mut self) -> Option<&mut T> {
+    self.0.as_any_mut().downcast_mut::<T>()
+  }
+
+  /// Traverses a nested field, item or key path; see [`FieldPathQueryMut`].
+  pub fn field_path_mut<'r, Q: FieldPathQueryMut<'r>>(
+    &'r mut self,
+    query: Q,
+  ) -> Result<Q::Output, ReflectiveError> {
+    query.resolve(self.as_object_ref_mut())
+  }
+
+  /// Inserts `value` under `key`; see [`MapAccessMut::insert_key`].
+  ///
+  /// Options forward the insertion to their contained value.
+  #[inline]
+  pub fn insert_key(&mut self, key: &str, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+    self.0.insert_key_dyn(key, value)
+  }
+
+  /// Inserts `value` at `index`; see [`SequenceAccessMut::insert_item`].
+  ///
+  /// An option without a value accepts an insertion at index 0.
+  #[inline]
+  pub fn insert_item(&mut self, index: usize, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+    self.0.insert_item_dyn(index, value)
+  }
+
+  /// Appends `value`; see [`SequenceAccessMut::push_item`].
+  #[inline]
+  pub fn push_item(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+    self.0.push_item_dyn(value)
+  }
+
+  /// Removes and returns the value stored under `key`.
+  ///
+  /// Options forward the removal to their contained value.
+  #[inline]
+  pub fn remove_key(&mut self, key: &str) -> Option<Object> {
+    self.0.remove_key_dyn(key)
+  }
+
+  /// Removes and returns the item at `index`.
+  ///
+  /// An option gives up its contained value at index 0.
+  #[inline]
+  pub fn remove_item(&mut self, index: usize) -> Option<Object> {
+    self.0.remove_item_dyn(index)
+  }
+
+  /// Moves an item; see [`SequenceAccessMut::move_item`].
+  #[inline]
+  pub fn move_item(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {
+    self.0.move_item_dyn(from, to)
+  }
+
+  /// Applies an ordered list of [`PatchOperation`] values. A failed operation
+  /// does not undo earlier ones. Use [`MutationBatch`] for transactional
+  /// application.
+  pub fn apply<'p, I>(&mut self, operations: I) -> Result<(), ApplyError<'p>>
+  where
+    I: IntoIterator<Item = PatchOperation<'p>>,
+  {
+    apply_patch(self.0.as_mut(), operations)
   }
 }
 
 impl From<ObjectMut> for Object {
   fn from(value: ObjectMut) -> Self {
     value.into_object()
-  }
-}
-
-impl Deref for ObjectMut {
-  type Target = dyn MetaMut;
-
-  fn deref(&self) -> &Self::Target {
-    self.0.as_ref()
-  }
-}
-
-impl DerefMut for ObjectMut {
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    self.0.as_mut()
-  }
-}
-
-impl AsRef<dyn MetaMut> for ObjectMut {
-  fn as_ref(&self) -> &(dyn MetaMut + 'static) {
-    self.0.as_ref()
-  }
-}
-
-impl AsMut<dyn MetaMut> for ObjectMut {
-  fn as_mut(&mut self) -> &mut (dyn MetaMut + 'static) {
-    self.0.as_mut()
   }
 }
 
@@ -752,6 +851,13 @@ impl fmt::Debug for ObjectMut {
 pub trait SendMeta: Meta + Send + Sync {
   /// Converts the boxed value back into a plain reflective object.
   fn into_object(self: Box<Self>) -> Object;
+
+  /// Returns this value as a [`Meta`] trait object.
+  ///
+  /// Converting `&dyn SendMeta` into `&dyn Meta` through trait upcasting
+  /// requires Rust 1.86, but the crate's MSRV is 1.85.
+  #[doc(hidden)]
+  fn as_meta(&self) -> &dyn Meta;
 }
 
 impl<T> SendMeta for T
@@ -760,6 +866,10 @@ where
 {
   fn into_object(self: Box<Self>) -> Object {
     Object::new(*self)
+  }
+
+  fn as_meta(&self) -> &dyn Meta {
+    self
   }
 }
 
@@ -798,48 +908,36 @@ impl SendObject {
   }
 
   /// Returns the underlying boxed [`SendMeta`] trait object.
+  #[inline]
   pub fn into_inner(self) -> Box<dyn SendMeta> {
     self.0
   }
 
   /// Converts this value into a plain [`Object`].
+  #[inline]
   pub fn into_object(self) -> Object {
     SendMeta::into_object(self.0)
   }
-}
 
-impl From<Box<dyn SendMeta>> for SendObject {
-  fn from(value: Box<dyn SendMeta>) -> Self {
-    Self(value)
-  }
-}
-
-impl Deref for SendObject {
-  type Target = dyn SendMeta;
-
-  fn deref(&self) -> &Self::Target {
-    self.0.as_ref()
-  }
-}
-
-impl AsRef<dyn SendMeta> for SendObject {
-  fn as_ref(&self) -> &(dyn SendMeta + 'static) {
-    self.0.as_ref()
+  /// Returns a borrowed [`ObjectRef`] view of the value.
+  #[inline]
+  pub fn as_object_ref(&self) -> ObjectRef<'_> {
+    ObjectRef::new(self.0.as_meta())
   }
 }
 
 impl fmt::Debug for SendObject {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    fmt_meta(f, "SendObject", self.0.as_ref())
+    fmt_meta(f, "SendObject", self.0.as_meta())
   }
 }
 
 /// Conversion and downcasting helpers for owned reflective objects.
 ///
-/// Implemented for [`Object`] and [`SendObject`]. Owned conversion consumes the
-/// wrapper and returns the reflected value as an [`Object`] when the requested
-/// concrete type does not match, while borrowed conversion leaves the wrapper
-/// in place.
+/// Implemented for [`Object`], [`ObjectMut`] and [`SendObject`]. Owned
+/// conversion consumes the wrapper and returns the reflected value as an
+/// [`Object`] when the requested concrete type does not match, while borrowed
+/// conversion leaves the wrapper in place.
 pub trait ObjectOps {
   /// Checks whether the object stores a `T`.
   fn is<T: 'static>(&self) -> bool;
@@ -904,9 +1002,30 @@ impl ObjectOps for Object {
   }
 }
 
+impl ObjectOps for ObjectMut {
+  #[inline]
+  fn is<T: 'static>(&self) -> bool {
+    self.0.as_any().is::<T>()
+  }
+
+  fn to<T: 'static>(self) -> Result<T, Object> {
+    if self.is::<T>() {
+      // The preceding type check guarantees that this downcast succeeds.
+      Ok(*Meta::into_any(self.0).downcast::<T>().unwrap())
+    } else {
+      Err(self.into_object())
+    }
+  }
+
+  #[inline]
+  fn to_ref<T: 'static>(&self) -> Option<&T> {
+    self.0.as_any().downcast_ref::<T>()
+  }
+}
+
 impl ObjectOps for SendObject {
   fn is<T: 'static>(&self) -> bool {
-    self.0.as_ref().as_any().is::<T>()
+    self.0.as_any().is::<T>()
   }
 
   fn to<T: 'static>(self) -> Result<T, Object> {
@@ -919,6 +1038,6 @@ impl ObjectOps for SendObject {
   }
 
   fn to_ref<T: 'static>(&self) -> Option<&T> {
-    self.as_ref().as_any().downcast_ref::<T>()
+    self.0.as_any().downcast_ref::<T>()
   }
 }

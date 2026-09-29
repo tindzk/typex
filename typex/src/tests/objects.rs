@@ -19,17 +19,6 @@ fn object_into_inner_returns_the_boxed_meta_value() {
 }
 
 #[test]
-fn object_into_rc_preserves_the_meta_value() {
-  let object = Object::new(Number(7));
-  let shared = object.into_rc();
-  let shared_clone = Rc::clone(&shared);
-
-  assert_eq!(Rc::strong_count(&shared), 2);
-  assert_eq!(shared.to_ref::<Number>(), Some(&Number(7)));
-  assert_eq!(shared_clone.to_ref::<Number>(), Some(&Number(7)));
-}
-
-#[test]
 fn object_mut_constructor_and_into_inner_work() {
   let object = ObjectMut::new(Number(7));
 
@@ -43,10 +32,23 @@ fn object_mut_from_clone_owns_a_copy() {
   let source = Number(7);
   let object = ObjectMut::from_clone(&source);
 
-  assert_eq!(
-    object.as_ref().as_any().downcast_ref::<Number>(),
-    Some(&Number(7))
-  );
+  assert_eq!(object.to_ref::<Number>(), Some(&Number(7)));
+}
+
+#[test]
+fn object_mut_lends_an_object_ref_mut() {
+  let mut object = ObjectMut::new(Pair {
+    count: 1,
+    label: Text("one"),
+  });
+
+  object
+    .as_object_ref_mut()
+    .set_field_path(TypedField::<Pair, u16>::new("count").path(), 2)
+    .unwrap();
+
+  assert_eq!(object.to_ref::<Pair>().unwrap().count, 2);
+  assert_eq!(object.as_object_ref().field_names(), &["count", "label"]);
 }
 
 #[test]

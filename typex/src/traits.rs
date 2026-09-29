@@ -1,58 +1,19 @@
 // Keep public API names in scope so Rustdoc can resolve short intra-doc links.
 #[allow(unused_imports)]
 use crate::{
-  AccessKind, AnyRef, ApplyError, FieldPathQuery, FieldPathQueryMut, MapEntryVisitor,
-  MutationBatch, Object, ObjectMut, ObjectOps, ObjectRef, ObjectRefMut, PatchOperation,
-  ReflectiveError, TypeInfo, TypedPath, ValueKind, apply_patch,
+  AccessKind, AnyRef, ApplyError, FieldPathQueryMut, MapAccessMut, MapEntryVisitor, MutationBatch,
+  Object, ObjectMut, ObjectOps, ObjectRef, ObjectRefMut, PatchOperation, Reflect, ReflectMut,
+  ReflectiveError, SequenceAccessMut, TypeInfo, ValueKind, apply_patch,
 };
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
-use alloc::vec::Vec;
 use core::any::{Any, TypeId};
 #[cfg(feature = "std")]
 use core::hash::Hash;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
-
-/// Traverses a nested field, item or key path from a [`Meta`] value.
-///
-/// The blanket implementation makes this helper available to every [`Meta`]
-/// value. Raw paths return [`ObjectRef`] values, while [`TypedPath`] queries
-/// return the terminal Rust reference directly.
-pub trait FieldPath: Meta {
-  /// Traverses a nested field, item or key path from the current value; see
-  /// [`FieldPathQuery`].
-  fn field_path<'a, Q: FieldPathQuery<'a>>(&'a self, query: Q) -> Option<Q::Output>
-  where
-    Self: Sized,
-  {
-    ObjectRef::new(self).field_path(query)
-  }
-}
-
-impl<T> FieldPath for T where T: Meta + ?Sized {}
-
-/// Mutable counterpart of [`FieldPath`] for [`MetaMut`] values.
-///
-/// See [`FieldPathQueryMut`] for the accepted paths, their return types and
-/// their errors.
-pub trait FieldPathMut: MetaMut {
-  /// Traverses a nested field, item or key path from the current value; see
-  /// [`FieldPathQueryMut`].
-  fn field_path_mut<'r, Q: FieldPathQueryMut<'r>>(
-    &'r mut self,
-    query: Q,
-  ) -> Result<Q::Output, ReflectiveError>
-  where
-    Self: Sized,
-  {
-    query.resolve(ObjectRefMut::new(self))
-  }
-}
-
-impl<T> FieldPathMut for T where T: MetaMut + ?Sized {}
 
 /// Failure returned when a sequential value cannot move an item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -173,15 +134,71 @@ pub trait TypedMapAccessMut<K> {
   fn key_typed_mut(&mut self, key: &K) -> Option<ObjectRefMut<'_>>;
 }
 
-/// Read-only reflection operations for runtime type information, structural
-/// navigation and downcasting to a concrete type.
+/// Compares two values of the same type through their structural shapes.
+// Generic over `T` so that each default `Meta::eq_dyn` calls `T::reflect`
+// statically, which lets the compiler call the access trait of `this` directly.
+#[inline]
+fn structural_eq<T: Meta + ?Sized>(this: &T, other: &dyn Meta) -> bool {
+  let this_any = this.as_any();
+  match (this.reflect(), other.reflect()) {
+    (Reflect::Option(a), Reflect::Option(b)) => match (a, b) {
+      (Some(a), Some(b)) => a == b,
+      (None, None) => true,
+      _ => false,
+    },
+
+    (Reflect::Struct(a), Reflect::Struct(b)) => {
+      if a.field_names() != b.field_names() {
+        return false;
+      }
+      a.field_names()
+        .iter()
+        .all(|&name| match (a.field(name), b.field(name)) {
+          (Some(x), Some(y)) if is_self_reference(x, this_any) => {
+            is_self_reference(y, other.as_any())
+          }
+          (Some(x), Some(y)) => x == y,
+          _ => false,
+        })
+    }
+
+    (Reflect::Map(a), Reflect::Map(b)) => {
+      if a.len() != b.len() {
+        return false;
+      }
+
+      let mut equal = true;
+      a.visit_entries(&mut |key, value| {
+        let Some(key) = string_map_key(key) else {
+          equal = false;
+          return false;
+        };
+        equal = b.key(key).is_some_and(|other_value| value == other_value);
+        equal
+      });
+      equal
+    }
+
+    (Reflect::Sequence(a), Reflect::Sequence(b)) => {
+      a.len() == b.len()
+        && (0..a.len()).all(|index| match (a.item(index), b.item(index)) {
+          (Some(x), Some(y)) => x == y,
+          _ => false,
+        })
+    }
+
+    _ => false,
+  }
+}
+
+/// Read-only reflection for runtime type information, structural navigation
+/// and downcasting to a concrete type.
 ///
 /// Implement or derive this trait to expose a type through read-only
 /// reflection. Implementations are provided for common scalar and collection
-/// types.
-///
-/// Use [`Object`] for an owned reflective value or [`ObjectRef`] for a borrowed
-/// view.
+/// types. [`Meta::reflect`] exposes the structure through the access traits in
+/// [`Reflect`], which callers reach through [`Object`] or [`ObjectRef`] rather
+/// than by importing them.
 ///
 /// For mutable structural access, implement or derive [`MetaMut`], the mutable
 /// counterpart to [`Meta`].
@@ -208,176 +225,80 @@ pub trait Meta: Any {
     TypeInfo::of::<Self>()
   }
 
-  /// Returns the Rust type name from `core::any::type_name`.
-  fn type_name(&self) -> &'static str {
-    self.type_info().type_name()
-  }
-
-  /// Returns the type's [`TypeId`].
-  fn id(&self) -> core::any::TypeId {
-    self.type_info().id()
-  }
-
   /// Returns this value's structural shape.
   ///
-  /// The result depends only on `Self`'s concrete type, never on runtime state.
-  /// A structural implementation may expose variant-dependent field names
-  /// while retaining the same kind.
-  fn kind(&self) -> ValueKind;
+  /// The variant must depend only on `Self`'s concrete type, never on runtime
+  /// state. A structural implementation may expose variant-dependent field
+  /// names while returning the same variant.
+  fn reflect(&self) -> Reflect<'_>;
 
-  /// Returns the named or indexed access exposed by this value, if any.
-  fn access_kind(&self) -> Option<AccessKind> {
-    None
-  }
-
-  /// Returns the contained value when this is `Some(value)`.
-  fn option_value(&self) -> Option<ObjectRef<'_>> {
-    None
-  }
-
-  /// Returns an exposed field by name.
-  fn field(&self, _name: &str) -> Option<ObjectRef<'_>> {
-    None
-  }
-
-  /// Returns the exposed field names in declaration order.
+  /// Returns an exposed field by name, forwarding through options.
   ///
-  /// Derived enum implementations place the active variant name before its fields.
-  fn field_names(&self) -> &'static [&'static str] {
-    &[]
+  /// The default implementation goes through [`Meta::reflect`] and costs one
+  /// dynamic call, so structural types do not need to override it.
+  fn field_dyn(&self, name: &str) -> Option<ObjectRef<'_>> {
+    // Each implementing type compiles its own copy of this default with a
+    // concrete `Self`, so `reflect` and the access method are inlined and
+    // dispatched statically. Only the call to `field_dyn` itself goes through
+    // the vtable. A free function over `&dyn Meta` would not know the type and
+    // would add dynamic calls for `reflect` and the access method.
+    match self.reflect() {
+      Reflect::Struct(value) => value.field(name),
+      Reflect::Option(value) => value?.field(name),
+      _ => None,
+    }
   }
 
-  /// Returns an item at `index` for sequential access.
-  fn item(&self, _index: usize) -> Option<ObjectRef<'_>> {
-    None
-  }
-
-  /// Returns the number of exposed structural items, when available.
+  /// Returns an exposed item at `index`. An option exposes its contained
+  /// value at index 0.
   ///
-  /// For maps, this is the number of keyed entries. An implementation whose
-  /// kind is [`ValueKind::Map`] must return `Some` with that count.
-  fn len(&self) -> Option<usize> {
-    None
+  /// The default implementation goes through [`Meta::reflect`] and costs one
+  /// dynamic call; see [`Meta::field_dyn`].
+  fn item_dyn(&self, index: usize) -> Option<ObjectRef<'_>> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect() {
+      Reflect::Struct(value) => value.item(index),
+      Reflect::Sequence(value) => value.item(index),
+      Reflect::Map(value) => value.item(index),
+      Reflect::Option(value) => value.filter(|_| index == 0),
+      Reflect::Scalar => None,
+    }
   }
 
-  /// Checks whether a value has no exposed structural items, when available.
-  fn is_empty(&self) -> Option<bool> {
-    self.len().map(|len| len == 0)
-  }
-
-  /// Returns a value for `key` during map-like access.
-  fn key(&self, _key: &str) -> Option<ObjectRef<'_>> {
-    None
-  }
-
-  /// Returns the available keys for map-like access.
-  fn keys(&self) -> Option<Vec<String>> {
-    None
-  }
-
-  /// Passes each map entry to `visitor` until it returns `false`.
+  /// Returns a value for a string-like `key`, forwarding through options.
   ///
-  /// Returns `false` when the value has no map-like access. Stopping early
-  /// still returns `true`.
-  ///
-  /// A map implementation must return `true` and visit every keyed entry
-  /// unless the visitor stops iteration. The default [`Meta::eq_dyn`] supports
-  /// only `String` and `&'static str` keys, so maps with other key types must
-  /// override [`Meta::eq_dyn`].
-  fn visit_map_entries(&self, _visitor: &mut MapEntryVisitor<'_>) -> bool {
-    false
+  /// The default implementation goes through [`Meta::reflect`] and costs one
+  /// dynamic call; see [`Meta::field_dyn`].
+  fn key_dyn(&self, key: &str) -> Option<ObjectRef<'_>> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect() {
+      Reflect::Map(value) => value.key(key),
+      Reflect::Option(value) => value?.key(key),
+      _ => None,
+    }
   }
 
   /// Compares two [`Meta`] values structurally.
   ///
   /// Values with different [`Meta::type_info`] are never equal. Otherwise the
-  /// comparison dispatches on [`Meta::kind`]:
+  /// comparison dispatches on the shape from [`Meta::reflect`]:
   ///
-  /// - [`ValueKind::Struct`] compares fields by name. A field that
-  ///   resolves to the value itself, such as a derived enum's variant name,
-  ///   is treated as equal.
-  /// - [`ValueKind::Map`] compares lengths, then the default implementation
-  ///   looks up each key from [`Meta::visit_map_entries`] with [`Meta::key`]. It
-  ///   supports `String` and `&'static str` keys.
-  /// - [`ValueKind::Sequence`] compares lengths, then items by index.
-  /// - [`ValueKind::Option`] compares presence and inner values.
-  /// - The default implementation returns `false` for [`ValueKind::Scalar`];
-  ///   scalar implementations compare their values by overriding this method.
+  /// - [`Reflect::Struct`] compares fields by name. A field that resolves to
+  ///   the value itself, such as a derived enum's variant name, is treated as
+  ///   equal.
+  /// - [`Reflect::Map`] compares lengths, then looks up each visited key by
+  ///   string. It supports `String` and `&'static str` keys.
+  /// - [`Reflect::Sequence`] compares lengths, then items by index.
+  /// - [`Reflect::Option`] compares presence and inner values.
+  /// - [`Reflect::Scalar`] values are never equal, so scalar implementations
+  ///   override this method.
   ///
-  /// The default implementation returns `false` for maps and sequences
-  /// without [`Meta::len`]. Built-in scalars, `BTreeMap` and `HashMap` override
-  /// this method. Custom opaque leaves need `#[typex(partial_eq)]` or a
-  /// hand-written [`Meta::eq_dyn`] implementation. Float equality follows
-  /// `PartialEq`, so `NaN != NaN`.
+  /// Built-in scalars, `BTreeMap`, `HashMap` and the derives override this
+  /// method with equivalent direct comparisons. Custom opaque leaves need
+  /// `#[typex(partial_eq)]` or a hand-written implementation. Float equality
+  /// follows `PartialEq`, so `NaN != NaN`.
   fn eq_dyn(&self, other: &dyn Meta) -> bool {
-    if self.type_info() != other.type_info() {
-      return false;
-    }
-
-    match self.kind() {
-      ValueKind::Scalar => false,
-
-      ValueKind::Option => match (self.option_value(), other.option_value()) {
-        (Some(a), Some(b)) => a.eq_dyn(b),
-        (None, None) => true,
-        _ => false,
-      },
-
-      ValueKind::Struct => {
-        if self.field_names() != other.field_names() {
-          return false;
-        }
-        self
-          .field_names()
-          .iter()
-          .all(|&name| match (self.field(name), other.field(name)) {
-            (Some(a), Some(b)) if is_self_reference(a, self.as_any()) => {
-              is_self_reference(b, other.as_any())
-            }
-            (Some(a), Some(b)) => a.eq_dyn(b),
-            _ => false,
-          })
-      }
-
-      ValueKind::Map => {
-        let (Some(self_len), Some(other_len)) = (self.len(), other.len()) else {
-          return false;
-        };
-
-        if self_len != other_len {
-          return false;
-        }
-
-        let mut equal = true;
-        if !self.visit_map_entries(&mut |key, value| {
-          let Some(key) = string_map_key(key) else {
-            equal = false;
-            return false;
-          };
-          equal = other
-            .key(key)
-            .is_some_and(|other_value| value.eq_dyn(other_value));
-          equal
-        }) {
-          return false;
-        }
-        equal
-      }
-
-      ValueKind::Sequence => {
-        let (Some(self_len), Some(other_len)) = (self.len(), other.len()) else {
-          return false;
-        };
-        if self_len != other_len {
-          return false;
-        }
-
-        (0..self_len).all(|index| match (self.item(index), other.item(index)) {
-          (Some(a), Some(b)) => a.eq_dyn(b),
-          _ => false,
-        })
-      }
-    }
+    self.type_info() == other.type_info() && structural_eq(self, other)
   }
 
   /// Converts this [`Meta`] instance into a boxed `Any` for owned conversions;
@@ -390,20 +311,19 @@ pub trait Meta: Any {
 
 /// Mutable reflection extension of [`Meta`].
 ///
-/// In addition to mutable structural navigation, this trait supports insertion,
-/// removal and value replacement. Unsupported navigation returns `None`.
-/// Unsupported operations and type mismatches return the supplied [`Object`] in
-/// `Err`.
+/// [`MetaMut::reflect_mut`] exposes mutable structural navigation, insertion
+/// and removal through the access traits in [`ReflectMut`]. Callers reach
+/// them through [`ObjectMut`], which returns `None` for unsupported navigation
+/// and the supplied [`Object`] in `Err` for unsupported operations, or through
+/// [`ObjectRefMut`], which returns a [`ReflectiveError`].
 ///
 /// Mutable field, item and key access only reaches existing entries. To add an
 /// entry, insert or append a value, which must have the expected concrete type.
 ///
 /// The derive macro implements this trait automatically. Manual
-/// implementations must provide [`MetaMut::replace`], [`MetaMut::as_any_mut`]
+/// implementations must provide [`MetaMut::reflect_mut`],
+/// [`MetaMut::set_dyn`], [`MetaMut::replace_dyn`], [`MetaMut::as_any_mut`]
 /// and a hidden `as_meta` method that returns `self`.
-///
-/// Use [`ObjectMut`] for an owned mutable reflective value or [`ObjectRefMut`]
-/// for borrowed mutable access.
 ///
 /// # Examples
 ///
@@ -427,19 +347,21 @@ pub trait Meta: Any {
 ///
 /// ```
 /// # use std::rc::Rc;
-/// # use typex::{Meta, MetaMut, Object};
+/// # use typex::{Meta, MetaMut, Object, ObjectRefMut};
 /// #[derive(Debug, Meta, MetaMut)]
 /// struct Pair {
 ///   value: u16,
 /// }
 ///
 /// let mut pair = Rc::new(Pair { value: 23 });
-/// typex::MetaMut::field_mut(&mut pair, "value")
+/// ObjectRefMut::new(&mut pair)
+///   .field_mut("value")
 ///   .unwrap()
 ///   .set(Object::new(41_u16))
 ///   .unwrap();
 ///
-/// *typex::MetaMut::field_mut(&mut pair, "value")
+/// *ObjectRefMut::new(&mut pair)
+///   .field_mut("value")
 ///   .unwrap()
 ///   .to_mut::<u16>()
 ///   .unwrap() = 42;
@@ -447,98 +369,125 @@ pub trait Meta: Any {
 /// assert_eq!(pair.value, 42);
 ///
 /// let _shared = Rc::clone(&pair);
-/// assert!(typex::MetaMut::field_mut(&mut pair, "value").is_none());
+/// assert!(ObjectRefMut::new(&mut pair).field_mut("value").is_err());
 /// ```
 pub trait MetaMut: Meta {
-  /// Returns a mutable field by name.
-  fn field_mut(&mut self, _name: &str) -> Option<ObjectRefMut<'_>> {
-    None
-  }
+  /// Returns this value's mutable structural shape.
+  fn reflect_mut(&mut self) -> ReflectMut<'_>;
 
-  /// Returns a mutable item at `index` for sequential access.
-  fn item_mut(&mut self, _index: usize) -> Option<ObjectRefMut<'_>> {
-    None
-  }
-
-  /// Returns a mutable value for `key` during map-like access.
-  fn key_mut(&mut self, _key: &str) -> Option<ObjectRefMut<'_>> {
-    None
-  }
-
-  /// Inserts `value` under `key`, replacing any existing value, and returns a
-  /// mutable view of it.
+  /// Returns a mutable field by name, forwarding through options.
   ///
-  /// Returns `value` in `Err` if keyed insertion is unsupported, the key type
-  /// cannot be built from a borrowed `&str` or the value type differs. Maps
-  /// with `&'static str` keys reject insertion because a borrowed `key` cannot
-  /// become `'static`.
-  fn insert_key(&mut self, _key: &str, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-    Err(value)
+  /// The default implementation goes through [`MetaMut::reflect_mut`] and
+  /// costs one dynamic call; see [`Meta::field_dyn`].
+  fn field_mut_dyn(&mut self, name: &str) -> Option<ObjectRefMut<'_>> {
+    match self.reflect_mut() {
+      ReflectMut::Struct(value) => value.field_mut(name),
+      ReflectMut::Option(value) => value.value_mut()?.inner.field_mut_dyn(name),
+      _ => None,
+    }
   }
 
-  /// Inserts `value` at `index` for sequential access, returning a mutable
-  /// view of the inserted item.
+  /// Returns a mutable item at `index`. An option exposes its contained value
+  /// at index 0.
   ///
-  /// Returns the original `value` in `Err` if this type does not support
-  /// indexed insertion, if `index` is out of bounds for insertion or if
-  /// `value`'s concrete type does not match the expected item type.
-  fn insert_item(&mut self, _index: usize, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-    Err(value)
+  /// The default implementation goes through [`MetaMut::reflect_mut`] and
+  /// costs one dynamic call; see [`Meta::field_dyn`].
+  fn item_mut_dyn(&mut self, index: usize) -> Option<ObjectRefMut<'_>> {
+    match self.reflect_mut() {
+      ReflectMut::Struct(value) => value.item_mut(index),
+      ReflectMut::Sequence(value) => value.item_mut(index),
+      ReflectMut::Option(value) if index == 0 => value.value_mut(),
+      _ => None,
+    }
   }
 
-  /// Appends `value` for sequential access, returning a mutable view of the
-  /// appended value.
+  /// Returns a mutable value for `key`, forwarding through options.
   ///
-  /// Returns the original `value` in `Err` if this type does not support
-  /// appending or if `value`'s concrete type does not match the expected
-  /// item type.
-  fn push_item(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-    Err(value)
+  /// The default implementation goes through [`MetaMut::reflect_mut`] and
+  /// costs one dynamic call; see [`Meta::field_dyn`].
+  fn key_mut_dyn(&mut self, key: &str) -> Option<ObjectRefMut<'_>> {
+    match self.reflect_mut() {
+      ReflectMut::Map(value) => value.key_mut(key),
+      ReflectMut::Option(value) => value.value_mut()?.inner.key_mut_dyn(key),
+      _ => None,
+    }
   }
 
-  /// Removes the value stored under `key` for map-like access, returning it
-  /// as an owned reflective object.
-  fn remove_key(&mut self, _key: &str) -> Option<Object> {
-    None
+  /// Inserts `value` under `key`; see [`MapAccessMut::insert_key`]. Options
+  /// forward the insertion to their contained value.
+  fn insert_key_dyn(&mut self, key: &str, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect_mut() {
+      ReflectMut::Map(map) => map.insert_key(key, value),
+      ReflectMut::Option(option) => match option.value_mut() {
+        Some(inner) => inner.inner.insert_key_dyn(key, value),
+        None => Err(value),
+      },
+      _ => Err(value),
+    }
   }
 
-  /// Removes the item at `index` for sequential access, returning it as an
-  /// owned reflective object.
-  fn remove_item(&mut self, _index: usize) -> Option<Object> {
-    None
+  /// Inserts `value` at `index`; see [`SequenceAccessMut::insert_item`]. An
+  /// option without a value accepts an insertion at index 0.
+  fn insert_item_dyn(&mut self, index: usize, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect_mut() {
+      ReflectMut::Sequence(sequence) => sequence.insert_item(index, value),
+      ReflectMut::Option(option) if index == 0 => option.insert_value(value),
+      _ => Err(value),
+    }
   }
 
-  /// Moves the item at `from` to the position before the item currently at
-  /// `to`. `to` may equal the length to move the item to the end.
-  ///
-  /// The default implementation reports [`MoveItemError::Unsupported`]. A
-  /// sequential implementation can use a native operation that preserves the
-  /// same index semantics.
-  fn move_item(&mut self, _from: usize, _to: usize) -> Result<(), MoveItemError> {
-    Err(MoveItemError::Unsupported)
+  /// Appends `value`; see [`SequenceAccessMut::push_item`].
+  fn push_item_dyn(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect_mut() {
+      ReflectMut::Sequence(sequence) => sequence.push_item(value),
+      _ => Err(value),
+    }
+  }
+
+  /// Removes and returns the value stored under `key`. Options forward the
+  /// removal to their contained value.
+  fn remove_key_dyn(&mut self, key: &str) -> Option<Object> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect_mut() {
+      ReflectMut::Map(value) => value.remove_key(key),
+      ReflectMut::Option(value) => value.value_mut()?.inner.remove_key_dyn(key),
+      _ => None,
+    }
+  }
+
+  /// Removes and returns the item at `index`. An option gives up its
+  /// contained value at index 0.
+  fn remove_item_dyn(&mut self, index: usize) -> Option<Object> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect_mut() {
+      ReflectMut::Sequence(value) => value.remove_item(index),
+      ReflectMut::Option(value) if index == 0 => value.take_value(),
+      _ => None,
+    }
+  }
+
+  /// Moves an item; see [`SequenceAccessMut::move_item`].
+  fn move_item_dyn(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {
+    // Compiled per implementing type; see the comment in `Meta::field_dyn`.
+    match self.reflect_mut() {
+      ReflectMut::Sequence(value) => value.move_item(from, to),
+      _ => Err(MoveItemError::Unsupported),
+    }
   }
 
   /// Overwrites the whole value with `value` and drops the previous value.
   ///
   /// Returns `value` in `Err` if its concrete type differs from `Self`.
-  fn set(&mut self, value: Object) -> Result<(), Object>;
+  fn set_dyn(&mut self, value: Object) -> Result<(), Object>;
 
   /// Replaces the whole value and returns the previous value.
   ///
   /// Returns `value` in `Err` if its concrete type differs from `Self`. Use
-  /// [`MetaMut::set`] when the previous value is not needed.
-  fn replace(&mut self, value: Object) -> Result<Object, Object>;
-
-  /// Applies an ordered list of [`PatchOperation`] values without requiring
-  /// `Clone` on the target. A failed operation does not undo earlier ones.
-  /// Use [`MutationBatch`] for transactional application.
-  fn apply<'p, I>(&mut self, operations: I) -> Result<(), ApplyError<'p>>
-  where
-    Self: Sized,
-    I: IntoIterator<Item = PatchOperation<'p>>,
-  {
-    apply_patch(self as &mut dyn MetaMut, operations)
-  }
+  /// [`MetaMut::set_dyn`] when the previous value is not needed.
+  fn replace_dyn(&mut self, value: Object) -> Result<Object, Object>;
 
   /// Returns this value as a [`Meta`] trait object.
   ///
@@ -552,25 +501,10 @@ pub trait MetaMut: Meta {
   fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
-impl dyn MetaMut + '_ {
-  /// Downcasts the mutable reference to `T`.
-  pub fn to_mut<T: 'static>(&mut self) -> Option<&mut T> {
-    self.as_any_mut().downcast_mut::<T>()
-  }
-
-  /// Traverses a nested field, item or key path; see [`FieldPathQueryMut`].
-  pub fn field_path_mut<'r, Q: FieldPathQueryMut<'r>>(
-    &'r mut self,
-    query: Q,
-  ) -> Result<Q::Output, ReflectiveError> {
-    query.resolve(ObjectRefMut::new(self))
-  }
-}
-
 /// Provides shared method bodies for concrete [`MetaMut`] implementations.
 macro_rules! set_body {
   () => {
-    fn replace(&mut self, value: Object) -> Result<Object, Object> {
+    fn replace_dyn(&mut self, value: Object) -> Result<Object, Object> {
       if !value.is::<Self>() {
         return Err(value);
       }
@@ -579,7 +513,7 @@ macro_rules! set_body {
       Ok(Object::new(core::mem::replace(self, replacement)))
     }
 
-    fn set(&mut self, value: Object) -> Result<(), Object> {
+    fn set_dyn(&mut self, value: Object) -> Result<(), Object> {
       if !value.is::<Self>() {
         return Err(value);
       }

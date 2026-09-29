@@ -5,8 +5,10 @@
 //! ## Available types
 //!
 //! - Reflection traits: [`Meta`] and [`MetaMut`]
+//! - Structural shapes: [`Reflect`] and [`ReflectMut`], with access traits such
+//!   as [`SequenceAccess`] for hand-written implementations
 //! - Owned objects: [`Object`], [`ObjectMut`] and [`SendObject`]
-//! - Object traits: [`ObjectOps`], [`FieldPath`] and [`FieldPathMut`]
+//! - Object trait: [`ObjectOps`]
 //! - Borrowed views: [`ObjectRef`] and [`ObjectRefMut`]
 //! - Paths: [`PathSegment`], [`OwnedPath`] and [`TypedPath`]
 //! - Mutations: [`PatchOperation`], [`MutationBatch`] and [`MutationRollback`]
@@ -98,6 +100,7 @@ mod mutation_batch;
 mod objects;
 mod patch;
 mod path;
+mod reflect;
 mod type_info;
 mod type_map;
 
@@ -106,6 +109,7 @@ pub use mutation_batch::*;
 pub use objects::*;
 pub use patch::*;
 pub use path::*;
+pub use reflect::*;
 pub use traits::*;
 pub use type_info::TypeInfo;
 pub use type_map::*;

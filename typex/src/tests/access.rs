@@ -14,13 +14,13 @@ fn option_meta_forwards_nested_access_and_presence() {
     Some(&Number(7))
   );
   assert!(ObjectRef::new(&absent).option_value().is_none());
-  assert_eq!(Meta::len(&value), Some(1));
+  assert_eq!(ObjectRef::new(&value).len(), Some(1));
   assert_eq!(
-    Meta::item(&value, 0).unwrap().to_ref::<Number>(),
+    ObjectRef::new(&value).item(0).unwrap().to_ref::<Number>(),
     Some(&Number(7))
   );
-  assert_eq!(Meta::len(&absent), Some(0));
-  assert!(Meta::item(&absent, 0).is_none());
+  assert_eq!(ObjectRef::new(&absent).len(), Some(0));
+  assert!(ObjectRef::new(&absent).item(0).is_none());
 }
 
 #[test]
@@ -65,11 +65,14 @@ fn object_ref_determines_kind_without_type_name_matching() {
 fn tuple_meta_exposes_indexed_access() {
   let pair = (7u8, true);
 
-  assert_eq!(Meta::field_names(&pair), &["0", "1"]);
-  assert_eq!(Meta::len(&pair), Some(2));
-  assert_eq!(Meta::item(&pair, 0).unwrap().to_ref::<u8>(), Some(&7));
+  assert_eq!(ObjectRef::new(&pair).field_names(), &["0", "1"]);
+  assert_eq!(ObjectRef::new(&pair).len(), Some(2));
   assert_eq!(
-    Meta::field(&pair, "1").unwrap().to_ref::<bool>(),
+    ObjectRef::new(&pair).item(0).unwrap().to_ref::<u8>(),
+    Some(&7)
+  );
+  assert_eq!(
+    ObjectRef::new(&pair).field("1").unwrap().to_ref::<bool>(),
     Some(&true)
   );
 }
@@ -82,17 +85,23 @@ fn map_meta_supports_typed_lookup_for_non_string_keys() {
     map.key_typed(&7).unwrap().to_ref::<Number>(),
     Some(&Number(11))
   );
-  assert!(Meta::key(&map, "7").is_none());
-  assert!(Meta::keys(&map).is_none());
+  assert!(ObjectRef::new(&map).key("7").is_none());
+  assert!(ObjectRef::new(&map).keys().is_none());
 }
 
 #[test]
 fn map_meta_supports_string_lookup_for_string_keys() {
   let map = BTreeMap::from([(String::from("primary"), Number(11))]);
 
-  assert_eq!(Meta::keys(&map), Some(vec!["primary".to_string()]));
   assert_eq!(
-    Meta::key(&map, "primary").unwrap().to_ref::<Number>(),
+    ObjectRef::new(&map).keys(),
+    Some(vec!["primary".to_string()])
+  );
+  assert_eq!(
+    ObjectRef::new(&map)
+      .key("primary")
+      .unwrap()
+      .to_ref::<Number>(),
     Some(&Number(11))
   );
 }
@@ -112,10 +121,10 @@ fn map_meta_does_not_expose_string_lookup_for_non_string_keys() {
   let numbers = BTreeMap::from([(7usize, Number(11))]);
   let chars = BTreeMap::from([('x', Number(13))]);
 
-  assert!(Meta::keys(&numbers).is_none());
-  assert!(Meta::key(&numbers, "7").is_none());
-  assert!(Meta::keys(&chars).is_none());
-  assert!(Meta::key(&chars, "x").is_none());
+  assert!(ObjectRef::new(&numbers).keys().is_none());
+  assert!(ObjectRef::new(&numbers).key("7").is_none());
+  assert!(ObjectRef::new(&chars).keys().is_none());
+  assert!(ObjectRef::new(&chars).key("x").is_none());
   assert_eq!(
     numbers.key_typed(&7).unwrap().to_ref::<Number>(),
     Some(&Number(11))
@@ -131,8 +140,7 @@ fn map_entries_visit_non_string_keys_without_stringifying_lookup() {
   let numbers = BTreeMap::from([(7usize, Number(11)), (9usize, Number(13))]);
   let mut seen = Vec::new();
 
-  assert!(Meta::visit_map_entries(
-    &numbers,
+  assert!(ObjectRef::new(&numbers).visit_map_entries(
     &mut |key: AnyRef<'_>, value: ObjectRef<'_>| {
       seen.push((
         *key.to_ref::<usize>().unwrap(),
@@ -143,7 +151,7 @@ fn map_entries_visit_non_string_keys_without_stringifying_lookup() {
   ));
 
   assert_eq!(seen, vec![(7, 11), (9, 13)]);
-  assert!(Meta::keys(&numbers).is_none());
+  assert!(ObjectRef::new(&numbers).keys().is_none());
 }
 
 #[test]
@@ -151,8 +159,7 @@ fn map_entries_can_stop_early() {
   let numbers = BTreeMap::from([(7usize, Number(11)), (9usize, Number(13))]);
   let mut seen = Vec::new();
 
-  assert!(Meta::visit_map_entries(
-    &numbers,
+  assert!(ObjectRef::new(&numbers).visit_map_entries(
     &mut |key: AnyRef<'_>, value: ObjectRef<'_>| {
       seen.push((
         *key.to_ref::<usize>().unwrap(),
@@ -177,36 +184,39 @@ fn wrapper_and_collection_meta_forward_access() {
   let set = BTreeSet::from([Number(14)]);
   let heap = BinaryHeap::from([15u8, 16u8]);
 
-  assert_eq!(Meta::field_names(&boxed), &["0", "1"]);
-  assert_eq!(Meta::item(&boxed, 0).unwrap().to_ref::<u8>(), Some(&7));
-  assert_eq!(Meta::len(&shared), Some(2));
+  assert_eq!(ObjectRef::new(&boxed).field_names(), &["0", "1"]);
   assert_eq!(
-    Meta::item(&shared, 1).unwrap().to_ref::<Number>(),
+    ObjectRef::new(&boxed).item(0).unwrap().to_ref::<u8>(),
+    Some(&7)
+  );
+  assert_eq!(ObjectRef::new(&shared).len(), Some(2));
+  assert_eq!(
+    ObjectRef::new(&shared).item(1).unwrap().to_ref::<Number>(),
     Some(&Number(9))
   );
-  assert_eq!(Meta::len(&atomic), Some(1));
+  assert_eq!(ObjectRef::new(&atomic).len(), Some(1));
   assert_eq!(
-    Meta::item(&atomic, 0).unwrap().to_ref::<Number>(),
+    ObjectRef::new(&atomic).item(0).unwrap().to_ref::<Number>(),
     Some(&Number(10))
   );
-  assert_eq!(Meta::len(&deque), Some(2));
+  assert_eq!(ObjectRef::new(&deque).len(), Some(2));
   assert_eq!(
-    Meta::item(&deque, 1).unwrap().to_ref::<Number>(),
+    ObjectRef::new(&deque).item(1).unwrap().to_ref::<Number>(),
     Some(&Number(11))
   );
-  assert_eq!(Meta::len(&list), Some(2));
+  assert_eq!(ObjectRef::new(&list).len(), Some(2));
   assert_eq!(
-    Meta::item(&list, 0).unwrap().to_ref::<Number>(),
+    ObjectRef::new(&list).item(0).unwrap().to_ref::<Number>(),
     Some(&Number(12))
   );
-  assert_eq!(Meta::len(&set), Some(1));
+  assert_eq!(ObjectRef::new(&set).len(), Some(1));
   assert_eq!(
-    Meta::item(&set, 0).unwrap().to_ref::<Number>(),
+    ObjectRef::new(&set).item(0).unwrap().to_ref::<Number>(),
     Some(&Number(14))
   );
-  assert_eq!(Meta::len(&heap), Some(2));
+  assert_eq!(ObjectRef::new(&heap).len(), Some(2));
   assert!(matches!(
-    Meta::item(&heap, 0).unwrap().to_ref::<u8>(),
+    ObjectRef::new(&heap).item(0).unwrap().to_ref::<u8>(),
     Some(15 | 16)
   ));
 }
@@ -218,22 +228,28 @@ fn indexed_key_meta_exposes_access_by_key_and_index() {
     ("secondary".to_owned(), Number(9)),
   ]);
 
-  assert_eq!(Meta::access_kind(&items), Some(AccessKind::ItemKey));
-  assert_eq!(Meta::len(&items), Some(2));
   assert_eq!(
-    Meta::item(&items, 1).unwrap().to_ref::<Number>(),
+    ObjectRef::new(&items).access_kind(),
+    Some(AccessKind::ItemKey)
+  );
+  assert_eq!(ObjectRef::new(&items).len(), Some(2));
+  assert_eq!(
+    ObjectRef::new(&items).item(1).unwrap().to_ref::<Number>(),
     Some(&Number(9))
   );
   assert_eq!(
-    Meta::key(&items, "primary").unwrap().to_ref::<Number>(),
+    ObjectRef::new(&items)
+      .key("primary")
+      .unwrap()
+      .to_ref::<Number>(),
     Some(&Number(7))
   );
   assert_eq!(
-    Meta::keys(&items),
+    ObjectRef::new(&items).keys(),
     Some(vec!["primary".to_owned(), "secondary".to_owned()])
   );
-  assert!(Meta::key(&items, "missing").is_none());
-  assert!(Meta::item(&items, 2).is_none());
+  assert!(ObjectRef::new(&items).key("missing").is_none());
+  assert!(ObjectRef::new(&items).item(2).is_none());
 }
 
 #[test]
@@ -241,25 +257,25 @@ fn result_meta_exposes_active_variant() {
   let ok: Result<Number, Text> = Ok(Number(7));
   let err: Result<Number, Text> = Err(Text("boom"));
 
-  assert_eq!(Meta::field_names(&ok), &["Ok"]);
-  assert_eq!(Meta::len(&ok), Some(1));
+  assert_eq!(ObjectRef::new(&ok).field_names(), &["Ok"]);
+  assert_eq!(ObjectRef::new(&ok).len(), Some(1));
   assert_eq!(
-    Meta::item(&ok, 0).unwrap().to_ref::<Number>(),
+    ObjectRef::new(&ok).item(0).unwrap().to_ref::<Number>(),
     Some(&Number(7))
   );
   assert_eq!(
-    Meta::field(&ok, "Ok").unwrap().to_ref::<Number>(),
+    ObjectRef::new(&ok).field("Ok").unwrap().to_ref::<Number>(),
     Some(&Number(7))
   );
 
-  assert_eq!(Meta::field_names(&err), &["Err"]);
-  assert_eq!(Meta::len(&err), Some(1));
+  assert_eq!(ObjectRef::new(&err).field_names(), &["Err"]);
+  assert_eq!(ObjectRef::new(&err).len(), Some(1));
   assert_eq!(
-    Meta::item(&err, 0).unwrap().to_ref::<Text>(),
+    ObjectRef::new(&err).item(0).unwrap().to_ref::<Text>(),
     Some(&Text("boom"))
   );
   assert_eq!(
-    Meta::field(&err, "Err").unwrap().to_ref::<Text>(),
+    ObjectRef::new(&err).field("Err").unwrap().to_ref::<Text>(),
     Some(&Text("boom"))
   );
 }

@@ -1,12 +1,12 @@
-use crate::patch::{OwnedPatchOperation, move_index_out_of_bounds};
+use crate::patch::{OwnedPatchOperation, kind_of, move_index_out_of_bounds};
 use crate::path::OwnedPath;
 use crate::{
-  MetaMut, MoveItemError, Object, ObjectRef, ObjectRefMut, PatchOperation, PatchOperationKind,
-  PathSegment, TypeInfo, ValueKind,
+  MetaMut, MoveItemError, Object, ObjectRef, PatchOperation, PatchOperationKind, PathSegment,
+  ReflectMut, TypeInfo, ValueKind,
 };
 // Keep public API names in scope for short intra-doc links.
 #[allow(unused_imports)]
-use crate::Meta;
+use crate::{Meta, ObjectRefMut};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::iter::FromIterator;
@@ -70,7 +70,7 @@ impl MutationRollback {
       OwnedPatchOperation::Set { value, .. }
       | OwnedPatchOperation::InsertKey { value, .. }
       | OwnedPatchOperation::InsertItem { value, .. }
-      | OwnedPatchOperation::PushItem { value, .. } => Some(ObjectRef::new(value.as_ref())),
+      | OwnedPatchOperation::PushItem { value, .. } => Some(value.as_object_ref()),
       OwnedPatchOperation::RemoveKey { .. }
       | OwnedPatchOperation::RemoveItem { .. }
       | OwnedPatchOperation::MoveItem { .. } => None,
@@ -371,9 +371,6 @@ impl MutationBatch {
   /// If an operation fails, reverts the earlier operations and returns
   /// [`CommitError::OperationFailed`]. If reverting fails, returns
   /// [`CommitError::RollbackFailed`] and leaves `target` partially restored.
-  /// Sequence pushes require [`Meta::len`] so the batch can record which item
-  /// to remove during rollback. Otherwise the push fails with
-  /// [`CommitOperationError::Unsupported`].
   #[allow(clippy::result_large_err)]
   pub fn commit(self, target: &mut dyn MetaMut) -> Result<MutationRollback, CommitError> {
     // Each inverse replaces its operation, so the rollback reuses the batch
@@ -416,42 +413,47 @@ fn resolve<'a>(
   target: &'a mut dyn MetaMut,
   path: &OwnedPath,
   operation: PatchOperationKind,
-) -> Result<ObjectRefMut<'a>, CommitOperationError> {
+) -> Result<&'a mut dyn MetaMut, CommitOperationError> {
   resolve_path(target, path).ok_or_else(|| CommitOperationError::PathNotFound {
     path: path.clone(),
     operation,
   })
 }
 
-fn resolve_path<'a>(target: &'a mut dyn MetaMut, path: &OwnedPath) -> Option<ObjectRefMut<'a>> {
-  let mut current = ObjectRefMut::new(target);
+fn resolve_path<'a>(target: &'a mut dyn MetaMut, path: &OwnedPath) -> Option<&'a mut dyn MetaMut> {
+  let mut current = target;
   for segment in path {
-    let inner = current.inner;
     current = match segment {
-      PathSegment::Field(name) => inner.field_mut(name)?,
-      PathSegment::Item(index) => inner.item_mut(index)?,
-      PathSegment::Key(key) => inner.key_mut(key)?,
-    };
+      PathSegment::Field(name) => current.field_mut_dyn(name)?,
+      PathSegment::Item(index) => current.item_mut_dyn(index)?,
+      PathSegment::Key(key) => current.key_mut_dyn(key)?,
+    }
+    .inner;
   }
   Some(current)
 }
 
-fn resolve_container<'a>(
-  target: &'a mut dyn MetaMut,
+/// Reports why a value exposes no mutable shape for an operation that needs
+/// `expected`.
+///
+/// Callers match on [`MetaMut::reflect_mut`] first and compute the kind only on
+/// this error path. A target of the expected kind without matching mutable
+/// structure, such as a `BTreeSet`, does not support the operation.
+fn container_error(
+  actual: ValueKind,
   path: &OwnedPath,
   operation: PatchOperationKind,
   expected: ValueKind,
-) -> Result<ObjectRefMut<'a>, CommitOperationError> {
-  let child = resolve(target, path, operation)?;
-  let actual = child.kind();
-  if actual != expected {
-    return Err(CommitOperationError::ShapeMismatch {
+) -> CommitOperationError {
+  if actual == expected {
+    unsupported_error(path, operation)
+  } else {
+    CommitOperationError::ShapeMismatch {
       path: path.clone(),
       expected,
       actual,
-    });
+    }
   }
-  Ok(child)
 }
 
 fn unsupported_error(path: &OwnedPath, operation: PatchOperationKind) -> CommitOperationError {
@@ -488,7 +490,7 @@ fn apply_staged_operation(
     OwnedPatchOperation::Set { path, value } => {
       let operation_kind = PatchOperationKind::Set;
       let child = resolve(target, &path, operation_kind)?;
-      match child.inner.replace(value) {
+      match child.replace_dyn(value) {
         Ok(previous) => Ok(OwnedPatchOperation::Set {
           path,
           value: previous,
@@ -503,15 +505,22 @@ fn apply_staged_operation(
     }
     OwnedPatchOperation::InsertKey { path, key, value } => {
       let operation_kind = PatchOperationKind::InsertKey;
-      let map = resolve_container(target, &path, operation_kind, ValueKind::Map)?;
-      let Some(child) = map.inner.key_mut(&key) else {
+      let target = resolve(target, &path, operation_kind)?;
+      let ReflectMut::Map(map) = target.reflect_mut() else {
+        return Err(container_error(
+          kind_of(target),
+          &path,
+          operation_kind,
+          ValueKind::Map,
+        ));
+      };
+      let Some(child) = map.key_mut(&key) else {
         map
-          .inner
           .insert_key(&key, value)
           .map_err(|_| unsupported_error(&path, operation_kind))?;
         return Ok(OwnedPatchOperation::RemoveKey { path, key });
       };
-      match child.inner.replace(value) {
+      match child.inner.replace_dyn(value) {
         Ok(previous) => Ok(OwnedPatchOperation::InsertKey {
           path,
           key,
@@ -527,8 +536,16 @@ fn apply_staged_operation(
     }
     OwnedPatchOperation::RemoveKey { path, key } => {
       let operation_kind = PatchOperationKind::RemoveKey;
-      let map = resolve_container(target, &path, operation_kind, ValueKind::Map)?;
-      match map.inner.remove_key(&key) {
+      let target = resolve(target, &path, operation_kind)?;
+      let ReflectMut::Map(map) = target.reflect_mut() else {
+        return Err(container_error(
+          kind_of(target),
+          &path,
+          operation_kind,
+          ValueKind::Map,
+        ));
+      };
+      match map.remove_key(&key) {
         Some(previous) => Ok(OwnedPatchOperation::InsertKey {
           path,
           key,
@@ -542,29 +559,49 @@ fn apply_staged_operation(
     }
     OwnedPatchOperation::InsertItem { path, index, value } => {
       let operation_kind = PatchOperationKind::InsertItem;
-      let sequence = resolve_container(target, &path, operation_kind, ValueKind::Sequence)?;
+      let target = resolve(target, &path, operation_kind)?;
+      let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
+        return Err(container_error(
+          kind_of(target),
+          &path,
+          operation_kind,
+          ValueKind::Sequence,
+        ));
+      };
       sequence
-        .inner
         .insert_item(index, value)
         .map_err(|_| unsupported_error(&path, operation_kind))?;
       Ok(OwnedPatchOperation::RemoveItem { path, index })
     }
     OwnedPatchOperation::PushItem { path, value } => {
       let operation_kind = PatchOperationKind::PushItem;
-      let sequence = resolve_container(target, &path, operation_kind, ValueKind::Sequence)?;
-      let Some(index) = sequence.len() else {
-        return Err(unsupported_error(&path, operation_kind));
+      let target = resolve(target, &path, operation_kind)?;
+      let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
+        return Err(container_error(
+          kind_of(target),
+          &path,
+          operation_kind,
+          ValueKind::Sequence,
+        ));
       };
+      let index = sequence.len();
       sequence
-        .inner
         .push_item(value)
         .map_err(|_| unsupported_error(&path, operation_kind))?;
       Ok(OwnedPatchOperation::RemoveItem { path, index })
     }
     OwnedPatchOperation::RemoveItem { path, index } => {
       let operation_kind = PatchOperationKind::RemoveItem;
-      let sequence = resolve_container(target, &path, operation_kind, ValueKind::Sequence)?;
-      match sequence.inner.remove_item(index) {
+      let target = resolve(target, &path, operation_kind)?;
+      let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
+        return Err(container_error(
+          kind_of(target),
+          &path,
+          operation_kind,
+          ValueKind::Sequence,
+        ));
+      };
+      match sequence.remove_item(index) {
         Some(previous) => Ok(OwnedPatchOperation::InsertItem {
           path,
           index,
@@ -575,11 +612,17 @@ fn apply_staged_operation(
     }
     OwnedPatchOperation::MoveItem { path, from, to } => {
       let operation_kind = PatchOperationKind::MoveItem;
-      let sequence = resolve_container(target, &path, operation_kind, ValueKind::Sequence)?;
-      let len = sequence.inner.len();
-      if let Some((index, len)) =
-        len.and_then(|len| move_index_out_of_bounds(from, to, len).map(|index| (index, len)))
-      {
+      let target = resolve(target, &path, operation_kind)?;
+      let ReflectMut::Sequence(sequence) = target.reflect_mut() else {
+        return Err(container_error(
+          kind_of(target),
+          &path,
+          operation_kind,
+          ValueKind::Sequence,
+        ));
+      };
+      let len = sequence.len();
+      if let Some(index) = move_index_out_of_bounds(from, to, len) {
         return Err(CommitOperationError::IndexOutOfBounds {
           path,
           operation: operation_kind,
@@ -587,16 +630,13 @@ fn apply_staged_operation(
           len,
         });
       }
-      sequence
-        .inner
-        .move_item(from, to)
-        .map_err(|error| match error {
-          MoveItemError::RestoreFailed => CommitOperationError::ItemLost {
-            path: path.clone(),
-            index: from,
-          },
-          _ => unsupported_error(&path, operation_kind),
-        })?;
+      sequence.move_item(from, to).map_err(|error| match error {
+        MoveItemError::RestoreFailed => CommitOperationError::ItemLost {
+          path: path.clone(),
+          index: from,
+        },
+        _ => unsupported_error(&path, operation_kind),
+      })?;
       let (from, to) = if from < to {
         (to - 1, from)
       } else {
