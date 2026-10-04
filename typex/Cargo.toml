@@ -18,7 +18,7 @@ std = []
 derive = ["dep:typex_derive"]
 
 [dependencies]
-typex_derive = { version = "0.1.0", path = "../typex_derive", optional = true }
+typex_derive = { version = "0.1.1", path = "../typex_derive", optional = true }
 
 [package.metadata.docs.rs]
 all-features = true
