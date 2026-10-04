@@ -7,14 +7,14 @@ use core::hash::Hash;
 ///
 /// # Example
 /// ```
-/// use std::collections::HashSet;
-/// use typex::TypeInfo;
+/// # use std::collections::HashSet;
+/// # use typex::TypeInfo;
 ///
 /// struct UserId(u64);
 ///
 /// let info = TypeInfo::of::<UserId>();
 ///
-/// assert_eq!(info.type_name(), core::any::type_name::<UserId>());
+/// assert_eq!(info.name(), core::any::type_name::<UserId>());
 /// assert_eq!(info.id(), TypeInfo::of::<UserId>().id());
 /// assert_eq!(info, TypeInfo::of::<UserId>());
 /// assert!(HashSet::from([info]).contains(&TypeInfo::of::<UserId>()));
@@ -34,12 +34,14 @@ impl TypeInfo {
     }
   }
 
-  /// Returns the Rust type name, equivalent to [`core::any::type_name`].
-  pub fn type_name(&self) -> &'static str {
+  /// Returns the qualified Rust name from [`core::any::type_name`].
+  #[inline]
+  pub fn name(&self) -> &'static str {
     self.name
   }
 
   /// Returns the type's [`TypeId`].
+  #[inline]
   pub fn id(&self) -> TypeId {
     self.id
   }

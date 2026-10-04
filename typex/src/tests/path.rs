@@ -5,6 +5,7 @@ fn owned_path_round_trips_segments() {
   let long_name = "n".repeat(64);
   let segments = [
     PathSegment::Field("profile"),
+    PathSegment::Variant("Ready"),
     PathSegment::Item(0),
     PathSegment::Item(63),
     PathSegment::Item(64),

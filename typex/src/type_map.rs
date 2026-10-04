@@ -92,7 +92,7 @@ impl<T> TypeMap<T> {
 
   /// Iterates over the bound Rust type names, in insertion order.
   pub fn type_names(&self) -> impl Iterator<Item = &'static str> + '_ {
-    self.entries.iter().map(|(info, _)| info.type_name())
+    self.entries.iter().map(|(info, _)| info.name())
   }
 
   /// Iterates over the bound `(TypeInfo, value)` pairs, in insertion order.

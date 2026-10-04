@@ -2,12 +2,48 @@ use super::support::*;
 use super::*;
 use core::any::Any;
 
+#[test]
+fn keyed_sequence_batches_restore_keys_and_item_order() {
+  let original = vec![("a".to_owned(), Number(1)), ("b".to_owned(), Number(2))];
+  let mut items = KeyedSequence {
+    items: original.clone(),
+  };
+  let batch = MutationBatch::from([
+    PatchOperation::insert_item([], 1, ("c".to_owned(), Number(3))),
+    PatchOperation::push_item([], ("d".to_owned(), Number(4))),
+    PatchOperation::move_item([], 3, 0),
+    PatchOperation::set([PathSegment::Key("a"), PathSegment::Item(1)], Number(5)),
+    PatchOperation::remove_item([], 2),
+  ]);
+  let rollback = batch.commit(&mut items).unwrap();
+  assert_eq!(
+    items.items,
+    vec![
+      ("d".to_owned(), Number(4)),
+      ("a".to_owned(), Number(5)),
+      ("b".to_owned(), Number(2)),
+    ]
+  );
+  rollback.undo(&mut items).unwrap();
+  assert_eq!(items.items, original);
+
+  let batch = MutationBatch::from([
+    PatchOperation::remove_item([], 0),
+    PatchOperation::move_item([], 1, 0),
+  ]);
+  assert!(matches!(
+    batch.commit(&mut items),
+    Err(CommitError::OperationFailed { .. })
+  ));
+  assert_eq!(items.items, original);
+}
+
 #[derive(Debug)]
 struct Rejecting;
 
 impl Meta for Rejecting {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Scalar
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Scalar
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -20,56 +56,20 @@ impl Meta for Rejecting {
 }
 
 impl MetaMut for Rejecting {
-  fn set(&mut self, value: Object) -> Result<(), Object> {
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Opaque
+  }
+
+  fn set_dyn(&mut self, value: Object) -> Result<(), Object> {
     Err(value)
   }
 
-  fn replace(&mut self, value: Object) -> Result<Object, Object> {
+  fn replace_dyn(&mut self, value: Object) -> Result<Object, Object> {
     Err(value)
   }
 
   fn as_meta(&self) -> &dyn Meta {
     self
-  }
-
-  fn as_any_mut(&mut self) -> &mut dyn Any {
-    self
-  }
-}
-
-#[derive(Debug, PartialEq)]
-struct UncountedSequence {
-  values: Vec<u8>,
-}
-
-impl Meta for UncountedSequence {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Sequence
-  }
-
-  fn into_any(self: Box<Self>) -> Box<dyn Any> {
-    self
-  }
-
-  fn as_any(&self) -> &dyn Any {
-    self
-  }
-}
-
-impl MetaMut for UncountedSequence {
-  set_body!();
-
-  fn push_item(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
-    if !value.is::<u8>() {
-      return Err(value);
-    }
-
-    self.values.push(value.to::<u8>().unwrap());
-    Ok(ObjectRefMut::new(self.values.last_mut().unwrap()))
-  }
-
-  fn remove_item(&mut self, index: usize) -> Option<Object> {
-    (index < self.values.len()).then(|| Object::new(self.values.remove(index)))
   }
 
   fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -94,6 +94,94 @@ fn mutation_batch_defers_owned_operations_until_commit() {
   let _rollback = batch.commit(&mut pair).unwrap();
 
   assert_eq!(pair.count, 7);
+}
+
+struct StructuralSequence {
+  values: Vec<u8>,
+}
+
+impl Meta for StructuralSequence {
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Sequence(self)
+  }
+
+  fn into_any(self: Box<Self>) -> Box<dyn Any> {
+    self
+  }
+
+  fn as_any(&self) -> &dyn Any {
+    self
+  }
+}
+
+impl SequenceAccess for StructuralSequence {
+  fn len(&self) -> usize {
+    self.values.len()
+  }
+
+  fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
+    self.values.get(index).map(|value| ObjectRef::new(value))
+  }
+}
+
+impl MetaMut for StructuralSequence {
+  set_body!();
+
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Sequence(self)
+  }
+
+  fn as_any_mut(&mut self) -> &mut dyn Any {
+    self
+  }
+}
+
+impl SequenceAccessMut for StructuralSequence {
+  fn push_item(&mut self, value: Object) -> Result<ObjectRefMut<'_>, Object> {
+    self.values.push(value.to::<u8>()?);
+    Ok(ObjectRefMut::new(self.values.last_mut().unwrap()))
+  }
+
+  fn remove_item(&mut self, index: usize) -> Option<Object> {
+    (index < self.values.len()).then(|| Object::new(self.values.remove(index)))
+  }
+}
+
+#[test]
+fn mutation_batch_reverts_push_without_mutable_item_access() {
+  let mut sequence = StructuralSequence {
+    values: vec![10, 20],
+  };
+  assert!(SequenceAccessMut::item_mut(&mut sequence, 0).is_none());
+  assert_eq!(
+    ObjectRef::new(&sequence).item(0).unwrap().to_ref::<u8>(),
+    Some(&10)
+  );
+
+  let rollback = MutationBatch::from([PatchOperation::push_item([], 30_u8)])
+    .commit(&mut sequence)
+    .unwrap();
+  assert_eq!(sequence.values, vec![10, 20, 30]);
+  rollback.undo(&mut sequence).unwrap();
+  assert_eq!(sequence.values, vec![10, 20]);
+
+  let error = MutationBatch::from([
+    PatchOperation::push_item([], 30_u8),
+    PatchOperation::set([PathSegment::Item(0)], 40_u8),
+  ])
+  .commit(&mut sequence)
+  .unwrap_err();
+  assert!(matches!(
+    error,
+    CommitError::OperationFailed {
+      index: 1,
+      error: CommitOperationError::PathNotFound {
+        operation: PatchOperationKind::Set,
+        ..
+      },
+    }
+  ));
+  assert_eq!(sequence.values, vec![10, 20]);
 }
 
 #[test]
@@ -123,28 +211,6 @@ fn mutation_batch_push_and_extend_stage_operations_in_order() {
 
   rollback.undo(&mut values).unwrap();
   assert_eq!(values, vec![1]);
-}
-
-#[test]
-fn mutation_batch_rejects_push_when_it_cannot_record_an_inverse_index() {
-  let mut values = UncountedSequence {
-    values: vec![10, 20],
-  };
-  let batch = MutationBatch::from([PatchOperation::push_item([], 30_u8)]);
-
-  let error = batch.commit(&mut values).unwrap_err();
-
-  assert!(matches!(
-    error,
-    CommitError::OperationFailed {
-      index: 0,
-      error: CommitOperationError::Unsupported {
-        operation: PatchOperationKind::PushItem,
-        ..
-      },
-    }
-  ));
-  assert_eq!(values.values, vec![10, 20]);
 }
 
 #[test]
@@ -440,4 +506,61 @@ fn mutation_batch_reports_out_of_bounds_move() {
     }
   ));
   assert_eq!(items, vec![1, 2, 3]);
+}
+
+#[test]
+fn mutation_batch_reports_shape_mismatch_for_a_container_of_another_kind() {
+  let mut map = Some(BTreeMap::from([(String::from("keep"), 1_u8)]));
+  let batch = MutationBatch::from([PatchOperation::insert_key([], "new", 2_u8)]);
+
+  let error = batch.commit(&mut map).unwrap_err();
+
+  assert!(matches!(
+    error,
+    CommitError::OperationFailed {
+      index: 0,
+      error: CommitOperationError::ShapeMismatch {
+        expected: ValueKind::Map,
+        actual: ValueKind::Option,
+        ..
+      },
+    }
+  ));
+  assert_eq!(map, Some(BTreeMap::from([(String::from("keep"), 1_u8)])));
+}
+
+#[test]
+fn mutation_batch_reports_unsupported_edits_of_a_sequence_without_mutable_structure() {
+  let mut set = BTreeSet::from([1_u8, 2]);
+  for (operation, kind) in [
+    (
+      PatchOperation::push_item([], 3_u8),
+      PatchOperationKind::PushItem,
+    ),
+    (
+      PatchOperation::insert_item([], 0, 3_u8),
+      PatchOperationKind::InsertItem,
+    ),
+    (
+      PatchOperation::remove_item([], 0),
+      PatchOperationKind::RemoveItem,
+    ),
+    (
+      PatchOperation::move_item([], 0, 2),
+      PatchOperationKind::MoveItem,
+    ),
+  ] {
+    let error = MutationBatch::from([operation])
+      .commit(&mut set)
+      .unwrap_err();
+
+    assert!(matches!(
+      error,
+      CommitError::OperationFailed {
+        index: 0,
+        error: CommitOperationError::Unsupported { operation, .. },
+      } if operation == kind
+    ));
+  }
+  assert_eq!(set, BTreeSet::from([1, 2]));
 }

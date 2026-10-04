@@ -2,29 +2,50 @@ use super::support::*;
 use super::*;
 use core::any::Any;
 
+#[test]
+fn apply_mutates_keyed_sequences_by_index_and_key() {
+  let mut items = KeyedSequence {
+    items: vec![("a".to_owned(), Number(1)), ("b".to_owned(), Number(2))],
+  };
+  ObjectRefMut::new(&mut items)
+    .apply([
+      PatchOperation::insert_item([], 1, ("c".to_owned(), Number(3))),
+      PatchOperation::push_item([], ("d".to_owned(), Number(4))),
+      PatchOperation::move_item([], 3, 0),
+      PatchOperation::set([PathSegment::Key("a"), PathSegment::Item(1)], Number(5)),
+      PatchOperation::remove_item([], 2),
+    ])
+    .unwrap();
+  assert_eq!(
+    items.items,
+    vec![
+      ("d".to_owned(), Number(4)),
+      ("a".to_owned(), Number(5)),
+      ("b".to_owned(), Number(2)),
+    ]
+  );
+
+  let error = ObjectRefMut::new(&mut items)
+    .apply([PatchOperation::move_item([], 3, 0)])
+    .unwrap_err();
+  assert!(matches!(
+    error,
+    ApplyError::IndexOutOfBounds {
+      index: 3,
+      len: 3,
+      ..
+    }
+  ));
+}
+
 #[derive(Debug, PartialEq)]
 struct RejectMiddleInsert {
   values: Vec<u8>,
 }
 
 impl Meta for RejectMiddleInsert {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Sequence
-  }
-
-  fn access_kind(&self) -> Option<AccessKind> {
-    Some(AccessKind::Item)
-  }
-
-  fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
-    self
-      .values
-      .get(index)
-      .map(|value| ObjectRef::new(value as &dyn Meta))
-  }
-
-  fn len(&self) -> Option<usize> {
-    Some(self.values.len())
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Sequence(self)
   }
 
   fn into_any(self: Box<Self>) -> Box<dyn Any> {
@@ -36,9 +57,29 @@ impl Meta for RejectMiddleInsert {
   }
 }
 
+impl SequenceAccess for RejectMiddleInsert {
+  fn len(&self) -> usize {
+    self.values.len()
+  }
+
+  fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
+    self.values.get(index).map(|value| ObjectRef::new(value))
+  }
+}
+
 impl MetaMut for RejectMiddleInsert {
   set_body!();
 
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Sequence(self)
+  }
+
+  fn as_any_mut(&mut self) -> &mut dyn Any {
+    self
+  }
+}
+
+impl SequenceAccessMut for RejectMiddleInsert {
   fn move_item(&mut self, from: usize, to: usize) -> Result<(), MoveItemError> {
     move_item_by_remove_insert(self, from, to)
   }
@@ -47,7 +88,7 @@ impl MetaMut for RejectMiddleInsert {
     self
       .values
       .get_mut(index)
-      .map(|value| ObjectRefMut::new(value as &mut dyn MetaMut))
+      .map(|value| ObjectRefMut::new(value))
   }
 
   fn insert_item(&mut self, index: usize, value: Object) -> Result<ObjectRefMut<'_>, Object> {
@@ -61,10 +102,6 @@ impl MetaMut for RejectMiddleInsert {
 
   fn remove_item(&mut self, index: usize) -> Option<Object> {
     (index < self.values.len()).then(|| Object::new(self.values.remove(index)))
-  }
-
-  fn as_any_mut(&mut self) -> &mut dyn Any {
-    self
   }
 }
 
@@ -97,8 +134,7 @@ fn apply_updates_only_fields_present_in_a_patch() {
     7_u16,
   )];
 
-  let target: &mut dyn MetaMut = &mut pair;
-  ObjectRefMut::new(target).apply(patch).unwrap();
+  ObjectRefMut::new(&mut pair).apply(patch).unwrap();
 
   assert_eq!(pair.count, 7);
   assert_eq!(pair.label, Text("before"));
@@ -181,8 +217,7 @@ fn patch_operation_kind_display_names_are_consistent() {
 fn move_item_out_of_bounds_leaves_sequence_unchanged() {
   let mut items = vec![1_u8, 2_u8, 3_u8];
 
-  let result =
-    ObjectRefMut::new(&mut items as &mut dyn MetaMut).apply([PatchOperation::move_item([], 0, 99)]);
+  let result = ObjectRefMut::new(&mut items).apply([PatchOperation::move_item([], 0, 99)]);
 
   assert_eq!(
     result,
@@ -200,7 +235,7 @@ fn move_item_out_of_bounds_leaves_sequence_unchanged() {
 fn move_item_reports_out_of_bounds_source_index() {
   let mut items = vec![1_u8, 2_u8, 3_u8];
 
-  let result = items.apply([PatchOperation::move_item([], 3, 0)]);
+  let result = ObjectRefMut::new(&mut items).apply([PatchOperation::move_item([], 3, 0)]);
 
   assert_eq!(
     result,
@@ -223,7 +258,7 @@ fn failed_move_restores_the_removed_item() {
     values: vec![1, 2, 3],
   };
 
-  let result = sequence.apply([PatchOperation::move_item([], 0, 2)]);
+  let result = ObjectRefMut::new(&mut sequence).apply([PatchOperation::move_item([], 0, 2)]);
 
   assert!(matches!(
     result,
@@ -241,7 +276,7 @@ fn failed_move_reports_an_item_that_it_cannot_restore() {
     values: vec![1, 2, 3],
   };
 
-  let result = sequence.apply([PatchOperation::move_item([], 0, 2)]);
+  let result = ObjectRefMut::new(&mut sequence).apply([PatchOperation::move_item([], 0, 2)]);
 
   assert_eq!(
     result,
@@ -292,8 +327,8 @@ fn patches_reject_non_string_map_keys() {
 struct NonClonePatchValue(u8);
 
 impl Meta for NonClonePatchValue {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Scalar
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Scalar
   }
 
   fn eq_dyn(&self, other: &dyn Meta) -> bool {
@@ -311,6 +346,10 @@ impl Meta for NonClonePatchValue {
 
 impl MetaMut for NonClonePatchValue {
   set_body!();
+
+  fn reflect_mut(&mut self) -> ReflectMut<'_> {
+    ReflectMut::Opaque
+  }
 
   fn as_any_mut(&mut self) -> &mut dyn Any {
     self
@@ -353,4 +392,74 @@ fn built_in_containers_do_not_require_clone_for_meta_access() {
       .0,
     2
   );
+}
+
+#[test]
+fn apply_reports_shape_mismatch_for_a_container_of_another_kind() {
+  let mut items = vec![1_u8, 2];
+  let patch = [PatchOperation::insert_key([], "key", 3_u8)];
+
+  let error = ObjectRefMut::new(&mut items).apply(patch).unwrap_err();
+
+  assert_eq!(
+    error,
+    ApplyError::ShapeMismatch {
+      path: vec![],
+      expected: ValueKind::Map,
+      actual: ValueKind::Sequence,
+    }
+  );
+  assert_eq!(items, vec![1, 2]);
+}
+
+#[test]
+fn apply_reports_shape_mismatch_for_a_map_inside_an_option() {
+  let mut map = Some(BTreeMap::from([(String::from("keep"), 1_u8)]));
+  let patch = [PatchOperation::remove_key([], "keep")];
+
+  let error = ObjectRefMut::new(&mut map).apply(patch).unwrap_err();
+
+  assert_eq!(
+    error,
+    ApplyError::ShapeMismatch {
+      path: vec![],
+      expected: ValueKind::Map,
+      actual: ValueKind::Option,
+    }
+  );
+  assert_eq!(map, Some(BTreeMap::from([(String::from("keep"), 1_u8)])));
+}
+
+#[test]
+fn apply_reports_unsupported_edits_of_a_sequence_without_mutable_structure() {
+  let mut set = BTreeSet::from([1_u8, 2]);
+  for (operation, kind) in [
+    (
+      PatchOperation::push_item([], 3_u8),
+      PatchOperationKind::PushItem,
+    ),
+    (
+      PatchOperation::insert_item([], 0, 3_u8),
+      PatchOperationKind::InsertItem,
+    ),
+    (
+      PatchOperation::remove_item([], 0),
+      PatchOperationKind::RemoveItem,
+    ),
+    (
+      PatchOperation::move_item([], 0, 2),
+      PatchOperationKind::MoveItem,
+    ),
+  ] {
+    let error = ObjectRefMut::new(&mut set).apply([operation]).unwrap_err();
+
+    assert_eq!(
+      error,
+      ApplyError::Unsupported {
+        path: vec![],
+        operation: kind,
+      }
+    );
+  }
+  assert_eq!(set, BTreeSet::from([1, 2]));
 }

@@ -36,6 +36,7 @@ out of scope.
 - [Reflective patching](#reflective-patching)
 - [Staged mutation batches](#staged-mutation-batches)
 - [Thread-safe objects](#thread-safe-objects)
+- [Hand-written implementations](#hand-written-implementations)
 - [Workspace structure](#workspace-structure)
 - [Licence](#licence)
 
@@ -48,12 +49,13 @@ out of scope.
 - Type-keyed maps for registries and dispatch tables
 - Support for common scalar, container and collection types
 - Derive macros for structs and enums
+- Low overhead, performance tracked in CI through instruction-count benchmarks
 - MSRV: Rust 1.85 (edition 2024)
 - Compatible with `no_std` + `alloc`
 - No runtime dependencies
 - No `unsafe` code
-- Small implementation: ~4k lines of Rust code
-<!-- check: tokei=typex/src,typex_derive/src exclude=tests min=3500 max=4200 -->
+- Small implementation: ~4.7k lines of Rust code
+<!-- check: tokei=typex/src,typex_derive/src exclude=tests min=4500 max=5000 -->
 
 ## Installation
 
@@ -177,13 +179,13 @@ Objects expose indexed, named and keyed access through `item()`, `field()` and
 ```rust
 let option = Object::new(Some(42_u8));
 let list = Object::new(vec![1_u8, 2, 3]);
-let record = Object::new((42_u8, true));
+let tuple = Object::new((42_u8, true));
 let map = Object::new(std::collections::BTreeMap::from([("read", true)]));
 
 assert_eq!(option.item(0).unwrap().to_ref::<u8>(), Some(&42));
 assert_eq!(list.item(1).unwrap().to_ref::<u8>(), Some(&2));
-// Tuple fields use string names, so "0" refers to the first field.
-assert_eq!(record.field("0").unwrap().to_ref::<u8>(), Some(&42));
+// Tuple fields have no names and are reached by index.
+assert_eq!(tuple.item(0).unwrap().to_ref::<u8>(), Some(&42));
 assert_eq!(map.key("read").unwrap().to_ref::<bool>(), Some(&true));
 ```
 
@@ -194,9 +196,8 @@ concrete key type. `visit_map_entries()` visits arbitrary keys through a
 `MapEntryVisitor` callback without converting them to strings.
 
 `len()` reports the number of exposed structural items, including keyed entries
-for maps. Map implementations must provide that count and expose their entries
-through `visit_map_entries()` for structural equality. Maps with non-string
-keys must override `Meta::eq_dyn`.
+for maps. Hand-written maps implement `MapAccess`. Maps with non-string keys
+must also override `Meta::eq_dyn`.
 
 <!-- check: name=map-access -->
 ```rust
@@ -218,8 +219,7 @@ assert_eq!(mutable_numbers.get(&7), Some(&12));
 
 let object = Object::new(numbers);
 let mut seen = Vec::new();
-assert!(Meta::visit_map_entries(
-  object.as_ref(),
+assert!(object.visit_map_entries(
   &mut |key: AnyRef<'_>, value: ObjectRef<'_>| {
     seen.push((*key.to_ref::<u32>().unwrap(), *value.to_ref::<u8>().unwrap()));
     true
@@ -240,14 +240,13 @@ let shape = |object: &Object| (object.kind(), object.access_kind());
 
 assert_eq!(shape(&scalar), (ValueKind::Scalar, None));
 assert_eq!(shape(&option), (ValueKind::Option, None));
-assert_eq!(shape(&list), (ValueKind::Sequence, Some(AccessKind::Item)));
-assert_eq!(shape(&record), (ValueKind::Struct, Some(AccessKind::Field)));
+assert_eq!(shape(&list), (ValueKind::Sequence, Some(AccessKind::Index)));
+assert_eq!(shape(&tuple), (ValueKind::Tuple, Some(AccessKind::Index)));
 assert_eq!(shape(&map), (ValueKind::Map, Some(AccessKind::Key)));
 ```
 
-`AccessKind::ItemKey` is reserved for types that combine keyed and indexed
-access, such as [`indexmap`](https://crates.io/crates/indexmap), using
-operations such as `key()` and `item()` together.
+`AccessKind::KeyedItem` describes sequences that support `key()` and `item()`
+together, such as a list of records indexed by a unique ID.
 
 `Option<T>` always reports `ValueKind::Option` as its own shape. For
 `Some`, `field()` and `key()` forward to the inner value, while `item(0)` and
@@ -255,12 +254,50 @@ operations such as `key()` and `item()` together.
 the inner value's access mode. For `None`, these operations return no inner
 value or forwarded access.
 
+### Enums
+
+Enums report `ValueKind::Enum`. `variant_name()` returns the active variant,
+whose fields are exposed like those of a struct or tuple: `field()` and
+`field_names()` for named fields, `item()` and `len()` for tuple variants.
+`access_kind()` follows the active variant. A typed path names the required
+active variant with `PathSegment::Variant(...)`; subsequent segments access
+the variant's fields. `variant(name)` selects the enum when its active variant
+matches `name`; `variant_mut(name)` provides mutable access. Both forward
+through options. `Result` follows the same rules, with its payload at item 0.
+
+<!-- check: name=enums -->
+```rust
+#[derive(Meta)]
+enum Status {
+  Ready { count: u8 },
+  Failed(&'static str),
+}
+
+let status = Object::new(Status::Ready { count: 3 });
+
+assert_eq!(status.kind(), ValueKind::Enum);
+assert_eq!(status.variant_name(), Some("Ready"));
+assert_eq!(status.field_names(), &["count"]);
+assert_eq!(status.field("count").unwrap().to_ref::<u8>(), Some(&3));
+
+assert_eq!(
+    status.variant("Ready").unwrap().field("count").unwrap().to_ref::<u8>(),
+    Some(&3)
+);
+
+let count = [PathSegment::Variant("Ready"), PathSegment::Field("count")];
+assert_eq!(status.field_path(&count).unwrap().to_ref::<u8>(), Some(&3));
+assert_eq!(status.field_path(Status::FIELD_READY_COUNT.path()), Some(&3));
+assert!(status.variant("Failed").is_none());
+```
+
 ### Type information
 
-`is()`, `type_info()` and `type_name()` expose runtime type information. Owned
-values should be created explicitly with `Object::new` or
-`ObjectMut::from_clone` when an owned mutable clone is required. An
-`ObjectMut` keeps the value mutable while an `Object` is immutable:
+`is()` checks the concrete type. `type_name()` and `type_id()` return its Rust
+name and type ID, while `type_info()` returns a `TypeInfo` with `name()` and
+`id()` accessors. Owned values should be created explicitly with `Object::new` or
+`ObjectMut::from_clone` when an owned mutable clone is required. An `ObjectMut`
+keeps the value mutable while an `Object` is immutable:
 
 <!-- check: name=type-information -->
 ```rust
@@ -269,17 +306,20 @@ use typex::ObjectMut;
 let object = Object::new(42_u8);
 
 assert!(object.is::<u8>());
-assert_eq!(object.type_info(), TypeInfo::of::<u8>());
+let info = object.type_info();
+assert_eq!(info, TypeInfo::of::<u8>());
+assert_eq!(info.name(), core::any::type_name::<u8>());
 assert_eq!(object.type_name(), core::any::type_name::<u8>());
+assert_eq!(object.type_id(), core::any::TypeId::of::<u8>());
 
 let mutable = ObjectMut::from_clone(&42_u8);
-assert_eq!(
-  mutable.as_ref().as_any().downcast_ref::<u8>(),
-  Some(&42)
-);
+assert_eq!(mutable.to_ref::<u8>(), Some(&42));
 ```
 
 ### Object conversions
+
+`ObjectMut::into_object()` and `SendObject::into_object()` convert into a
+read-only `Object` and preserve the value and its concrete type.
 
 `ObjectOps` provides conversions to borrowed or owned values. `to_ref()`
 borrows the value. `to()` consumes an owned value and performs an exact-type
@@ -295,7 +335,7 @@ assert_eq!(object.to::<u8>(), Ok(42));
 ### Equality
 
 `Meta::eq_dyn()` compares two `Meta` values and is also available as `==` on
-`ObjectRef`, `ObjectRefMut` and `&dyn Meta`. Mismatched concrete types are
+`Object`, `ObjectRef` and `ObjectRefMut`. Mismatched concrete types are
 never equal. Structural values compare recursively through exposed fields, map
 entries or indexed items. Derived types can opt into their own `PartialEq`
 implementation with `#[typex(partial_eq)]`; see
@@ -306,12 +346,14 @@ as `#[typex(partial_eq)]` does:
 
 <!-- check: name=manual-equality -->
 ```rust
+use typex::Reflect;
+
 #[derive(Debug, PartialEq)]
 struct ManualId(u64);
 
 impl Meta for ManualId {
-  fn kind(&self) -> ValueKind {
-    ValueKind::Scalar
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Scalar
   }
 
   fn eq_dyn(&self, other: &dyn Meta) -> bool {
@@ -335,8 +377,8 @@ let b = ManualId(7);
 assert!(a.eq_dyn(&b));
 ```
 
-Equality dispatches on `Meta::kind()`, so a struct or map with zero exposed
-fields compares equal to itself:
+Equality dispatches on the shape from `Meta::reflect()`, so a struct or map with
+zero exposed fields compares equal to itself:
 
 <!-- check: name=empty-struct-equality -->
 ```rust
@@ -345,17 +387,16 @@ struct EmptyState;
 
 let a = EmptyState;
 let b = EmptyState;
-assert!(&a as &dyn Meta == &b as &dyn Meta);
+assert!(a.eq_dyn(&b));
 ```
 
 ### Paths
 
-`FieldPath` traverses several hops in one call using either raw
-`&[PathSegment]` values or typed paths. Typed item steps support `Vec`, arrays,
-`VecDeque` and `LinkedList`. Typed key steps support `BTreeMap` and `HashMap`
-with `String` or `&'static str` keys. `BTreeSet` and `BinaryHeap` support
-read-only indexed reflection through raw paths, but do not support typed item
-steps or mutable item access.
+`ObjectRef::field_path` and `ObjectRefMut::field_path_mut` traverse several hops
+in one call using raw paths (`&[PathSegment]`) or typed paths. Typed paths start
+from the `FIELD_*` constants that `#[derive(Meta)]` generates. `.then(field)`
+appends a nested field, `.item(index)` an index into a sequence and `.key(key)`
+a key into a map with string keys.
 
 Raw paths return an `ObjectRef` to downcast explicitly, while typed paths
 return a reference to the target:
@@ -384,8 +425,9 @@ let mut payload = Payload {
   limits: BTreeMap::from([(String::from("requests"), 100)]),
 };
 
+let root = ObjectRef::new(&payload);
 assert_eq!(
-  payload
+  root
     .field_path(&[
       PathSegment::Field("labels"),
       PathSegment::Item(0),
@@ -397,12 +439,12 @@ assert_eq!(
 );
 
 assert_eq!(
-  payload.field_path(Payload::FIELD_LABELS.item(0).then(Label::FIELD_NAME)),
+  root.field_path(Payload::FIELD_LABELS.item(0).then(Label::FIELD_NAME)),
   Some(&"primary")
 );
 
 assert_eq!(
-  payload.field_path(Payload::FIELD_LIMITS.key("requests")),
+  root.field_path(Payload::FIELD_LIMITS.key("requests")),
   Some(&100)
 );
 ```
@@ -550,7 +592,8 @@ let tree = Tree {
 };
 
 assert_eq!(
-  tree.field_path(Tree::<&str>::FIELD_CHILDREN.item(0).then(Tree::FIELD_VALUE)),
+  ObjectRef::new(&tree)
+    .field_path(Tree::<&str>::FIELD_CHILDREN.item(0).then(Tree::FIELD_VALUE)),
   Some(&"leaf")
 );
 ```
@@ -565,7 +608,7 @@ the underlying value to implement `Debug`.
 ## Mutation
 
 `ObjectRefMut::set` replaces the whole value with an owned `Object` when
-the concrete types match. This also works for opaque values. `MetaMut` then
+the concrete types match. This also works for opaque values. `ObjectRefMut` also
 provides structural mutation through fields, items and keys:
 
 <!-- check: name=mutation extends=paths -->
@@ -580,7 +623,11 @@ ObjectRefMut::new(&mut id)
   .unwrap();
 assert_eq!(id.0, 8);
 
-*payload.field_mut("count").unwrap().to_mut::<u8>().unwrap() = 4;
+*ObjectRefMut::new(&mut payload)
+  .field_mut("count")
+  .unwrap()
+  .to_mut::<u8>()
+  .unwrap() = 4;
 assert_eq!(payload.count, 4);
 ```
 
@@ -711,8 +758,10 @@ order, stops at the first failure and leaves earlier successful operations
 applied. Use a `MutationBatch` when earlier changes must be undone after a
 later operation fails.
 
-`MetaMut::move_item` defaults to `MoveItemError::Unsupported`. Sequential types
-override it with a native move operation.
+`SequenceAccessMut::item_mut` defaults to `None`. Custom sequences can support
+push and removal while restricting mutable access to existing items.
+`SequenceAccessMut::move_item` defaults to `MoveItemError::Unsupported`.
+Sequential access implementations override it with a native move operation.
 
 ## Staged mutation batches
 
@@ -800,7 +849,7 @@ assert_eq!(settings.profiles[0].name, "primary");
 Structural operations affect the paths and indexes used by later operations.
 Rollback replays an inverse for each operation instead of restoring a
 whole-value snapshot, and staged values become visible only after `commit`.
-Custom `MetaMut` implementations must implement `MetaMut::replace` correctly
+Custom `MetaMut` implementations must implement `MetaMut::replace_dyn` correctly
 when whole-value inverse operations are required.
 
 A custom `MetaMut` implementation can also make a commit fail in a way that
@@ -827,6 +876,70 @@ std::thread::spawn(move || {
 })
 .join()
 .unwrap();
+```
+
+## Hand-written implementations
+
+`Meta::reflect()` returns the value's structural shape as a `Reflect`. Each
+structural shape has an access trait: `StructAccess`, `TupleAccess`,
+`EnumAccess`, `SequenceAccess`, `KeyedSequenceAccess` or `MapAccess`. An enum
+implements `EnumAccess`, which returns the active variant's name and fields,
+and `StructAccess` or `TupleAccess` for the variants with named or positional
+fields.
+
+`MetaMut::reflect_mut()` does the same for mutation through `StructAccessMut`,
+`TupleAccessMut`, `EnumAccessMut`, `SequenceAccessMut`,
+`KeyedSequenceAccessMut`, `MapAccessMut` and `OptionAccessMut`.
+
+Callers do not import the access traits. `Object`, `ObjectRef`, `ObjectRefMut`
+and the trait objects dispatch to them. Importing `Meta` or `MetaMut` for the
+derives therefore brings only `type_info`, `reflect`, `reflect_mut`, methods
+ending in `_dyn` and the `Any` conversions into scope, and a call such as
+`part.len()` on a `&&str` still reaches `str::len`.
+
+<!-- check: name=manual-sequence -->
+```rust
+use typex::{ObjectRef, Reflect, SequenceAccess};
+
+struct Ring {
+  values: Vec<u8>,
+  start: usize,
+}
+
+impl Meta for Ring {
+  fn reflect(&self) -> Reflect<'_> {
+    Reflect::Sequence(self)
+  }
+
+  fn into_any(self: Box<Self>) -> Box<dyn core::any::Any> {
+    self
+  }
+
+  fn as_any(&self) -> &dyn core::any::Any {
+    self
+  }
+}
+
+impl SequenceAccess for Ring {
+  fn len(&self) -> usize {
+    self.values.len()
+  }
+
+  fn item(&self, index: usize) -> Option<ObjectRef<'_>> {
+    let len = self.values.len();
+    (index < len).then(|| ObjectRef::new(&self.values[(self.start + index) % len]))
+  }
+}
+
+let ring = Ring {
+  values: vec![1, 2, 3],
+  start: 1,
+};
+let view = ObjectRef::new(&ring);
+
+assert_eq!(view.kind(), ValueKind::Sequence);
+assert_eq!(view.len(), Some(3));
+assert_eq!(view.item(0).unwrap().to_ref::<u8>(), Some(&2));
 ```
 
 ## Workspace structure
