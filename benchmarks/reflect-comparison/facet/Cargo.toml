@@ -1,0 +1,14 @@
+[package]
+name = "compare-facet"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+facet = { version = "=0.46.5", features = ["reflect"] }
+facet-path = "=0.46.5"
+
+[profile.release]
+codegen-units = 1
