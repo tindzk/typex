@@ -1,0 +1,13 @@
+[package]
+name = "compare-typex"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+typex = { path = "../../../typex", features = ["derive"] }
+
+[profile.release]
+codegen-units = 1

@@ -1,0 +1,17 @@
+[package]
+name = "compare-bevy-minimal"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "compare-bevy-minimal"
+path = "../bevy/src/main.rs"
+
+[dependencies]
+bevy_reflect = { version = "=0.19.1", default-features = false, features = ["std"] }
+
+[profile.release]
+codegen-units = 1

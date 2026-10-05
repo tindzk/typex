@@ -1,0 +1,858 @@
+{
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "jobs": 4,
+  "cpu": 4,
+  "variants": {
+    "typex": {
+      "dependencies": 5,
+      "packages": [
+        "compare-typex v0.0.0 (/home/tim/dev/typex/benchmarks/reflect-comparison/typex)",
+        "proc-macro2 v1.0.107",
+        "quote v1.0.47",
+        "syn v2.0.119",
+        "typex v0.1.1 (/home/tim/dev/typex/typex)",
+        "typex_derive v0.1.1 (proc-macro) (/home/tim/dev/typex/typex_derive)",
+        "unicode-ident v1.0.26"
+      ],
+      "build_seconds": {
+        "dev": {
+          "samples": [
+            1.874476682045497,
+            1.7341482850024477,
+            1.8809226340381429
+          ],
+          "median": 1.874476682045497
+        },
+        "release": {
+          "samples": [
+            1.9733178499736823,
+            1.9410362570197321,
+            1.9891299789887853
+          ],
+          "median": 1.9733178499736823
+        }
+      },
+      "runtime_ns": {
+        "baseline": [
+          {
+            "median": 0.826,
+            "min": 0.704,
+            "max": 1.014
+          },
+          {
+            "median": 0.827,
+            "min": 0.74,
+            "max": 1.006
+          },
+          {
+            "median": 0.832,
+            "min": 0.79,
+            "max": 1.012
+          }
+        ],
+        "downcast": [
+          {
+            "median": 2.171,
+            "min": 1.921,
+            "max": 2.953
+          },
+          {
+            "median": 2.271,
+            "min": 1.921,
+            "max": 2.964
+          },
+          {
+            "median": 2.285,
+            "min": 1.923,
+            "max": 2.966
+          }
+        ],
+        "field": [
+          {
+            "median": 2.643,
+            "min": 2.608,
+            "max": 3.073
+          },
+          {
+            "median": 2.648,
+            "min": 2.591,
+            "max": 3.086
+          },
+          {
+            "median": 2.627,
+            "min": 2.569,
+            "max": 3.034
+          }
+        ],
+        "cached_field": [
+          {
+            "median": 2.604,
+            "min": 2.543,
+            "max": 2.633
+          },
+          {
+            "median": 2.609,
+            "min": 2.552,
+            "max": 2.622
+          },
+          {
+            "median": 2.62,
+            "min": 2.518,
+            "max": 2.634
+          }
+        ],
+        "nested_path": [
+          {
+            "median": 4.312,
+            "min": 4.309,
+            "max": 4.317
+          },
+          {
+            "median": 4.313,
+            "min": 4.308,
+            "max": 4.319
+          },
+          {
+            "median": 4.32,
+            "min": 4.314,
+            "max": 4.34
+          }
+        ],
+        "indexed_path": [
+          {
+            "median": 4.63,
+            "min": 4.619,
+            "max": 4.714
+          },
+          {
+            "median": 4.626,
+            "min": 4.618,
+            "max": 4.645
+          },
+          {
+            "median": 4.622,
+            "min": 4.613,
+            "max": 4.63
+          }
+        ],
+        "equality": [
+          {
+            "median": 22.268,
+            "min": 22.202,
+            "max": 22.634
+          },
+          {
+            "median": 22.204,
+            "min": 22.197,
+            "max": 22.239
+          },
+          {
+            "median": 22.182,
+            "min": 22.172,
+            "max": 22.198
+          }
+        ],
+        "field_mutation": [
+          {
+            "median": 2.471,
+            "min": 2.462,
+            "max": 2.482
+          },
+          {
+            "median": 2.469,
+            "min": 2.457,
+            "max": 2.499
+          },
+          {
+            "median": 2.467,
+            "min": 2.456,
+            "max": 2.482
+          }
+        ],
+        "cached_field_mutation": [
+          {
+            "median": 2.471,
+            "min": 2.457,
+            "max": 2.479
+          },
+          {
+            "median": 2.472,
+            "min": 2.458,
+            "max": 2.482
+          },
+          {
+            "median": 2.465,
+            "min": 2.455,
+            "max": 2.469
+          }
+        ]
+      }
+    },
+    "bevy": {
+      "dependencies": 36,
+      "packages": [
+        "assert_type_match v0.1.1 (proc-macro)",
+        "bevy_macro_utils v0.19.1",
+        "bevy_platform v0.19.1",
+        "bevy_ptr v0.19.1",
+        "bevy_reflect v0.19.1",
+        "bevy_reflect_derive v0.19.1 (proc-macro)",
+        "bevy_utils v0.19.1",
+        "compare-bevy v0.0.0 (/home/tim/dev/typex/benchmarks/reflect-comparison/bevy)",
+        "derive_more v2.1.1",
+        "derive_more-impl v2.1.1 (proc-macro)",
+        "disqualified v1.1.0",
+        "downcast-rs v2.0.2",
+        "equivalent v1.0.2",
+        "erased-serde v0.4.10",
+        "foldhash v0.2.0",
+        "hashbrown v0.16.1",
+        "hashbrown v0.17.1",
+        "indexmap v2.14.2",
+        "inventory v0.3.24",
+        "proc-macro2 v1.0.107",
+        "quote v1.0.47",
+        "rustc_version v0.4.1",
+        "semver v1.0.28",
+        "serde v1.0.229",
+        "serde_core v1.0.229",
+        "smallvec v1.16.2",
+        "spin v0.10.1",
+        "syn v2.0.119",
+        "syn v3.0.6",
+        "thiserror v2.0.21",
+        "thiserror-impl v2.0.21 (proc-macro)",
+        "toml_datetime v1.1.1+spec-1.1.0",
+        "toml_edit v0.25.15+spec-1.1.0",
+        "toml_parser v1.1.3+spec-1.1.0",
+        "typeid v1.0.3",
+        "unicode-ident v1.0.26",
+        "variadics_please v1.1.0 (proc-macro)",
+        "winnow v1.0.4"
+      ],
+      "build_seconds": {
+        "dev": {
+          "samples": [
+            4.845064807974268,
+            4.876898440998048,
+            4.888015128031839
+          ],
+          "median": 4.876898440998048
+        },
+        "release": {
+          "samples": [
+            9.31778431800194,
+            9.084781661978923,
+            9.358348790963646
+          ],
+          "median": 9.31778431800194
+        }
+      },
+      "runtime_ns": {
+        "baseline": [
+          {
+            "median": 0.813,
+            "min": 0.809,
+            "max": 0.997
+          },
+          {
+            "median": 0.838,
+            "min": 0.767,
+            "max": 1.018
+          },
+          {
+            "median": 0.811,
+            "min": 0.805,
+            "max": 1.008
+          }
+        ],
+        "downcast": [
+          {
+            "median": 2.274,
+            "min": 1.936,
+            "max": 2.966
+          },
+          {
+            "median": 2.289,
+            "min": 1.905,
+            "max": 2.952
+          },
+          {
+            "median": 2.178,
+            "min": 1.903,
+            "max": 2.965
+          }
+        ],
+        "field": [
+          {
+            "median": 3.863,
+            "min": 3.852,
+            "max": 4.52
+          },
+          {
+            "median": 3.864,
+            "min": 3.856,
+            "max": 4.494
+          },
+          {
+            "median": 3.878,
+            "min": 3.87,
+            "max": 4.515
+          }
+        ],
+        "cached_field": [
+          {
+            "median": 3.099,
+            "min": 3.073,
+            "max": 3.134
+          },
+          {
+            "median": 3.159,
+            "min": 3.129,
+            "max": 3.204
+          },
+          {
+            "median": 3.126,
+            "min": 3.094,
+            "max": 3.158
+          }
+        ],
+        "nested_path": [
+          {
+            "median": 14.774,
+            "min": 14.746,
+            "max": 14.826
+          },
+          {
+            "median": 14.917,
+            "min": 14.867,
+            "max": 15.046
+          },
+          {
+            "median": 17.297,
+            "min": 16.769,
+            "max": 17.632
+          }
+        ],
+        "indexed_path": [
+          {
+            "median": 15.391,
+            "min": 15.379,
+            "max": 15.48
+          },
+          {
+            "median": 15.449,
+            "min": 15.409,
+            "max": 15.484
+          },
+          {
+            "median": 15.457,
+            "min": 15.387,
+            "max": 15.497
+          }
+        ],
+        "string_path": [
+          {
+            "median": 30.012,
+            "min": 29.824,
+            "max": 30.593
+          },
+          {
+            "median": 29.474,
+            "min": 28.895,
+            "max": 31.755
+          },
+          {
+            "median": 29.444,
+            "min": 28.988,
+            "max": 29.749
+          }
+        ],
+        "equality": [
+          {
+            "median": 85.51,
+            "min": 84.516,
+            "max": 86.713
+          },
+          {
+            "median": 91.475,
+            "min": 90.987,
+            "max": 92.082
+          },
+          {
+            "median": 85.824,
+            "min": 84.927,
+            "max": 86.575
+          }
+        ],
+        "field_mutation": [
+          {
+            "median": 3.873,
+            "min": 3.871,
+            "max": 3.876
+          },
+          {
+            "median": 3.879,
+            "min": 3.875,
+            "max": 3.894
+          },
+          {
+            "median": 3.879,
+            "min": 3.862,
+            "max": 3.882
+          }
+        ],
+        "cached_field_mutation": [
+          {
+            "median": 3.084,
+            "min": 3.072,
+            "max": 3.09
+          },
+          {
+            "median": 3.075,
+            "min": 3.07,
+            "max": 3.088
+          },
+          {
+            "median": 3.082,
+            "min": 3.076,
+            "max": 3.091
+          }
+        ]
+      }
+    },
+    "bevy-minimal": {
+      "dependencies": 34,
+      "packages": [
+        "assert_type_match v0.1.1 (proc-macro)",
+        "bevy_macro_utils v0.19.1",
+        "bevy_platform v0.19.1",
+        "bevy_ptr v0.19.1",
+        "bevy_reflect v0.19.1",
+        "bevy_reflect_derive v0.19.1 (proc-macro)",
+        "bevy_utils v0.19.1",
+        "compare-bevy-minimal v0.0.0 (/home/tim/dev/typex/benchmarks/reflect-comparison/bevy-minimal)",
+        "derive_more v2.1.1",
+        "derive_more-impl v2.1.1 (proc-macro)",
+        "disqualified v1.1.0",
+        "downcast-rs v2.0.2",
+        "equivalent v1.0.2",
+        "erased-serde v0.4.10",
+        "foldhash v0.2.0",
+        "hashbrown v0.16.1",
+        "hashbrown v0.17.1",
+        "indexmap v2.14.2",
+        "proc-macro2 v1.0.107",
+        "quote v1.0.47",
+        "rustc_version v0.4.1",
+        "semver v1.0.28",
+        "serde v1.0.229",
+        "serde_core v1.0.229",
+        "spin v0.10.1",
+        "syn v2.0.119",
+        "syn v3.0.6",
+        "thiserror v2.0.21",
+        "thiserror-impl v2.0.21 (proc-macro)",
+        "toml_datetime v1.1.1+spec-1.1.0",
+        "toml_edit v0.25.15+spec-1.1.0",
+        "toml_parser v1.1.3+spec-1.1.0",
+        "typeid v1.0.3",
+        "unicode-ident v1.0.26",
+        "variadics_please v1.1.0 (proc-macro)",
+        "winnow v1.0.4"
+      ],
+      "build_seconds": {
+        "dev": {
+          "samples": [
+            4.746501223999076,
+            4.895486627006903,
+            4.635224862955511
+          ],
+          "median": 4.746501223999076
+        },
+        "release": {
+          "samples": [
+            9.098047692968976,
+            9.05128756101476,
+            8.902057781990152
+          ],
+          "median": 9.05128756101476
+        }
+      },
+      "runtime_ns": {
+        "baseline": [
+          {
+            "median": 0.535,
+            "min": 0.49,
+            "max": 0.546
+          },
+          {
+            "median": 0.829,
+            "min": 0.818,
+            "max": 0.999
+          },
+          {
+            "median": 0.824,
+            "min": 0.706,
+            "max": 0.991
+          }
+        ],
+        "downcast": [
+          {
+            "median": 1.774,
+            "min": 1.611,
+            "max": 2.061
+          },
+          {
+            "median": 2.272,
+            "min": 1.925,
+            "max": 2.965
+          },
+          {
+            "median": 2.277,
+            "min": 1.895,
+            "max": 2.968
+          }
+        ],
+        "field": [
+          {
+            "median": 3.857,
+            "min": 3.85,
+            "max": 3.909
+          },
+          {
+            "median": 3.861,
+            "min": 3.851,
+            "max": 4.516
+          },
+          {
+            "median": 3.886,
+            "min": 3.87,
+            "max": 4.505
+          }
+        ],
+        "cached_field": [
+          {
+            "median": 3.185,
+            "min": 3.168,
+            "max": 3.27
+          },
+          {
+            "median": 3.117,
+            "min": 3.095,
+            "max": 3.142
+          },
+          {
+            "median": 3.163,
+            "min": 3.125,
+            "max": 3.202
+          }
+        ],
+        "nested_path": [
+          {
+            "median": 14.782,
+            "min": 14.774,
+            "max": 14.804
+          },
+          {
+            "median": 14.8,
+            "min": 14.782,
+            "max": 14.824
+          },
+          {
+            "median": 14.972,
+            "min": 14.909,
+            "max": 15.039
+          }
+        ],
+        "indexed_path": [
+          {
+            "median": 15.419,
+            "min": 15.391,
+            "max": 15.479
+          },
+          {
+            "median": 15.417,
+            "min": 15.389,
+            "max": 15.6
+          },
+          {
+            "median": 15.441,
+            "min": 15.391,
+            "max": 15.521
+          }
+        ],
+        "string_path": [
+          {
+            "median": 27.796,
+            "min": 27.745,
+            "max": 27.844
+          },
+          {
+            "median": 27.722,
+            "min": 27.677,
+            "max": 27.787
+          },
+          {
+            "median": 27.779,
+            "min": 27.717,
+            "max": 27.81
+          }
+        ],
+        "equality": [
+          {
+            "median": 92.305,
+            "min": 91.657,
+            "max": 92.485
+          },
+          {
+            "median": 92.703,
+            "min": 92.245,
+            "max": 93.112
+          },
+          {
+            "median": 88.136,
+            "min": 88.01,
+            "max": 89.083
+          }
+        ],
+        "field_mutation": [
+          {
+            "median": 3.882,
+            "min": 3.863,
+            "max": 3.901
+          },
+          {
+            "median": 3.874,
+            "min": 3.868,
+            "max": 3.891
+          },
+          {
+            "median": 3.894,
+            "min": 3.89,
+            "max": 3.9
+          }
+        ],
+        "cached_field_mutation": [
+          {
+            "median": 3.144,
+            "min": 3.111,
+            "max": 3.157
+          },
+          {
+            "median": 3.104,
+            "min": 3.098,
+            "max": 3.115
+          },
+          {
+            "median": 3.093,
+            "min": 3.082,
+            "max": 3.103
+          }
+        ]
+      }
+    },
+    "facet": {
+      "dependencies": 25,
+      "packages": [
+        "allocator-api2 v0.2.21",
+        "autocfg v1.5.1",
+        "compare-facet v0.0.0 (/home/tim/dev/typex/benchmarks/reflect-comparison/facet)",
+        "const-fnv1a-hash v1.1.0",
+        "equivalent v1.0.2",
+        "facet v0.46.5",
+        "facet-core v0.46.5",
+        "facet-macro-parse v0.46.5",
+        "facet-macro-types v0.46.5",
+        "facet-macros v0.46.5 (proc-macro)",
+        "facet-macros-impl v0.46.5",
+        "facet-path v0.46.5",
+        "facet-reflect v0.46.5",
+        "foldhash v0.2.0",
+        "hashbrown v0.17.1",
+        "impls v1.0.3",
+        "mutants v0.0.3 (proc-macro)",
+        "proc-macro2 v1.0.107",
+        "quote v1.0.47",
+        "regex v1.13.1",
+        "regex-automata v0.4.18",
+        "regex-syntax v0.8.11",
+        "rustc-hash v2.1.3",
+        "smallvec v2.0.0-beta.2",
+        "strsim v0.11.1",
+        "unicode-ident v1.0.26",
+        "unsynn v0.3.0"
+      ],
+      "build_seconds": {
+        "dev": {
+          "samples": [
+            3.1579499470535666,
+            3.067789785040077,
+            3.079310181958135
+          ],
+          "median": 3.079310181958135
+        },
+        "release": {
+          "samples": [
+            5.179168895003386,
+            5.115796588012017,
+            4.746700100018643
+          ],
+          "median": 5.115796588012017
+        }
+      },
+      "runtime_ns": {
+        "baseline": [
+          {
+            "median": 0.506,
+            "min": 0.489,
+            "max": 0.537
+          },
+          {
+            "median": 0.834,
+            "min": 0.757,
+            "max": 1.025
+          },
+          {
+            "median": 0.827,
+            "min": 0.767,
+            "max": 1.018
+          }
+        ],
+        "downcast": [
+          {
+            "median": 1.466,
+            "min": 1.339,
+            "max": 1.64
+          },
+          {
+            "median": 1.879,
+            "min": 1.616,
+            "max": 2.358
+          },
+          {
+            "median": 1.825,
+            "min": 1.621,
+            "max": 2.371
+          }
+        ],
+        "field": [
+          {
+            "median": 4.942,
+            "min": 4.914,
+            "max": 5.166
+          },
+          {
+            "median": 4.934,
+            "min": 4.923,
+            "max": 6.033
+          },
+          {
+            "median": 4.928,
+            "min": 4.915,
+            "max": 6.099
+          }
+        ],
+        "cached_field": [
+          {
+            "median": 4.025,
+            "min": 4.006,
+            "max": 4.03
+          },
+          {
+            "median": 4.014,
+            "min": 3.991,
+            "max": 4.023
+          },
+          {
+            "median": 4.005,
+            "min": 3.99,
+            "max": 4.015
+          }
+        ],
+        "nested_path": [
+          {
+            "median": 10.029,
+            "min": 9.997,
+            "max": 10.059
+          },
+          {
+            "median": 10.006,
+            "min": 9.992,
+            "max": 10.024
+          },
+          {
+            "median": 9.97,
+            "min": 9.95,
+            "max": 9.984
+          }
+        ],
+        "indexed_path": [
+          {
+            "median": 11.007,
+            "min": 10.857,
+            "max": 11.112
+          },
+          {
+            "median": 11.03,
+            "min": 10.599,
+            "max": 11.162
+          },
+          {
+            "median": 11.584,
+            "min": 10.942,
+            "max": 11.932
+          }
+        ],
+        "field_mutation": [
+          {
+            "median": 37.661,
+            "min": 37.576,
+            "max": 37.777
+          },
+          {
+            "median": 37.553,
+            "min": 37.455,
+            "max": 37.664
+          },
+          {
+            "median": 37.506,
+            "min": 37.444,
+            "max": 37.662
+          }
+        ],
+        "cached_field_mutation": [
+          {
+            "median": 5.257,
+            "min": 5.239,
+            "max": 5.305
+          },
+          {
+            "median": 5.237,
+            "min": 5.224,
+            "max": 5.249
+          },
+          {
+            "median": 5.241,
+            "min": 5.225,
+            "max": 5.253
+          }
+        ]
+      },
+      "unsupported_operations": {
+        "equality": "Peek::partial_eq requires PartialEq on these structs; the workload derives reflection only."
+      }
+    }
+  },
+  "environment": {
+    "date": "2026-10-05",
+    "processor": "Apple M2 Pro",
+    "architecture": "aarch64",
+    "os": "Linux 7.1.13-402.asahi.fc44.aarch64+16k",
+    "compiler_wrappers": "disabled",
+    "build_runs": 3,
+    "runtime_executions": 3,
+    "samples_per_operation": 9,
+    "iterations_per_sample": 2000000
+  }
+}
